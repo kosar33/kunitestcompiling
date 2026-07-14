@@ -61,6 +61,7 @@
   X(AString, recordVoiceOpenAIModel, "tts-1", "capabilities.record_voice.openai.model") \
   X(AString, recordVoiceOpenAIVoice, "alloy", "capabilities.record_voice.openai.voice") \
   X(bool, proxyEnabled, false, "capabilities.proxy.enabled") \
+  X(AString, shellWorkDir, ".", "misc.shell_work_dir")
 
 // clang-format on
 

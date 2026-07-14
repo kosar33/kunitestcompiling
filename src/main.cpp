@@ -1,4 +1,7 @@
 #include <random>
+#include <array>
+#include <memory>
+#include <cstdio>
 #include <range/v3/action/insert.hpp>
 #include <range/v3/algorithm/any_of.hpp>
 #include <range/v3/algorithm/max_element.hpp>
@@ -146,6 +149,55 @@ protected:
 
     void updateTools(OpenAITools& actions) override {
         AppBase::updateTools(actions);
+        actions.insert({
+            .name = "run_terminal_command",
+            .description = "Runs a shell command on your host server inside the configured working directory. Returns both stdout and stderr.",
+            .parameters = {
+                .properties = {
+                    {"command", {.type = "string", .description = "The shell command to execute."}},
+                },
+                .required = {"command"},
+            },
+            .handler = [](OpenAITools::Ctx ctx) -> AFuture<AString> {
+                auto cmd = ctx.args["command"].asStringOpt().valueOrException("command is required");
+                
+                // Безопасный валидатор: блокируем деструктивные системные вызовы
+                static const AVector<AString> blacklist = {
+                    "rm", "dd", "mkfs", "sudo", "reboot", "shutdown", "poweroff", "sysctl", "chmod", "chown"
+                };
+                AString lowercaseCmd = cmd.lowercase();
+                auto tokens = lowercaseCmd.split(' ');
+                bool isDangerous = false;
+                for (const auto& token : tokens) {
+                    AString cleanToken = token.trim(";&|()<>");
+                    for (const auto& dangerous : blacklist) {
+                        if (cleanToken == dangerous) {
+                            isDangerous = true;
+                            break;
+                        }
+                    }
+                    if (isDangerous) break;
+                }
+                if (isDangerous) {
+                    co_return "Error: Command blocked. The use of dangerous system commands (rm, dd, sudo, chmod, etc.) is strictly prohibited for security reasons.";
+                }
+                AString shellCmd = "cd {} && {} 2>&1"_format(config().shellWorkDir, cmd);
+                
+                std::array<char, 256> buffer;
+                std::string result;
+                std::unique_ptr<FILE, decltype(&pclose)> pipe(popen(shellCmd.toStdString().c_str(), "r"), pclose);
+                if (!pipe) {
+                    co_return "Error: failed to initialize shell pipe.";
+                }
+                while (fgets(buffer.data(), buffer.size(), pipe.get()) != nullptr) {
+                    result += buffer.data();
+                }
+                if (result.empty()) {
+                    co_return "Command executed successfully with no output.";
+                }
+                co_return AString(result);
+            }
+        });
         if (config().capabilityTakePhoto) {
             actions.insert(tools::takePhoto(_new<StableDiffusionClientImpl>(), openAI()));
         }

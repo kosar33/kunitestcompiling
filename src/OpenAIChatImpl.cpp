@@ -44,6 +44,7 @@ AString IOpenAIChat::embedImage(AImageView image) {
 AJson OpenAIChatImpl::makeQueryString(Params params, const IOpenAIChat::Session& messages) {
     ALOG_TRACE(LOG_TAG) << "makeQueryString";
     AUI_ASSERT(!messages.sessionId.empty());
+    
     auto messagesJson = aui::to_json(messages);
     for (auto& msg : messagesJson.asArray()) {
         auto& msgObj = msg.asObject();
@@ -60,6 +61,7 @@ AJson OpenAIChatImpl::makeQueryString(Params params, const IOpenAIChat::Session&
             msgObj.removeIf([](const auto& pair) { return pair.first == "tool_calls"; });
         }
     }
+
     AJson json {
         {
           "messages",
@@ -136,11 +138,11 @@ _<IOpenAIChat::StreamingResponse> OpenAIChatImpl::chatStreaming(Params params, I
         json["stream"] = true;
         return AJson::toString(json);
     }();
-    AFileOutputStream("last_query.json") << query.toStdString();
+    AString queryToSave = query; // Copy query to avoid move after use
     static const auto logsDir = APath("logs");
     logsDir.makeDirs();
     const auto now = std::chrono::system_clock::now();
-    AFileOutputStream(logsDir / "{}.0query.json"_format(now)) << query.toStdString();
+    AFileOutputStream(logsDir / "{}.0query.json"_format(now)) << queryToSave.toStdString();
 
     ALOG_TRACE(LOG_TAG) << "QueryStreaming: " << query;
     auto result = _new<IOpenAIChat::StreamingResponse>();
@@ -176,7 +178,8 @@ _<IOpenAIChat::StreamingResponse> OpenAIChatImpl::chatStreaming(Params params, I
             while (!jsonTempBuffer.empty()) {
                 ATokenizer tokenizer(std::make_unique<AByteBufferInputStream>(jsonTempBuffer));
                 AString command = tokenizer.readStringWhile([](char c) {
-                    return c != '{' && c != '\n';
+                    return c != '{' && c != '
+';
                 });
                 if (command.startsWith("data: [DONE]")) {
                     break;
@@ -199,12 +202,15 @@ _<IOpenAIChat::StreamingResponse> OpenAIChatImpl::chatStreaming(Params params, I
 
         AUI_ASSERT(!sessionId.empty());
         auto retryDelay = 2s;
+        ACurl::Response httpResponse;
+        bool success = false;
         for (int attempt = 0; attempt < 5; ++attempt) {
             jsonTempBuffer.clear();
             AVector<AString> headers = {"Content-Type: application/json", "x-session-id: {}"_format(sessionId) };
+            if (!params.config.endpoint.bearerKey.empty()) {
                 headers << "Authorization: Bearer {}"_format(params.config.endpoint.bearerKey);
             }
-            auto httpResponse = co_await ACurl::Builder(params.config.endpoint.baseUrl + "chat/completions")
+            httpResponse = co_await ACurl::Builder(params.config.endpoint.baseUrl + "chat/completions")
                                                    .withMethod(ACurl::Method::HTTP_POST)
                                                    .withTimeout(config().requestTimeoutSecs)
                                                    .withHeaders(std::move(headers))
@@ -220,17 +226,19 @@ _<IOpenAIChat::StreamingResponse> OpenAIChatImpl::chatStreaming(Params params, I
                                                        return buffer.size();
                                                    })
                                                    .runAsync();
-            if (httpResponse.code == ACurl::ResponseCode(429)) {
+            if (static_cast<int>(httpResponse.code) == 429) {
                 ALogger::warn(LOG_TAG) << "chatStreaming: status=429 (Too Many Requests). Retrying in " << retryDelay.count() << "s...";
                 co_await AThread::asyncSleep(retryDelay);
                 retryDelay *= 2;
                 continue;
             }
-            if (httpResponse.code != ACurl::ResponseCode::HTTP_200_OK) {
-                ALogger::warn(LOG_TAG) << "chatStreaming: status=" << httpResponse.code;
-            }
+            success = true;
             break;
         }
+        if (success && httpResponse.code != ACurl::ResponseCode::HTTP_200_OK) {
+            ALogger::warn(LOG_TAG) << "chatStreaming: status=" << httpResponse.code;
+        }
+        // finalize
         parseBuffer();
 
         // ensure we delivered all events before finishing the coroutine.

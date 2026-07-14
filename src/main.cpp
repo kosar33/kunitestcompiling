@@ -168,8 +168,18 @@ protected:
                 AString lowercaseCmd = cmd.lowercase();
                 auto tokens = lowercaseCmd.split(' ');
                 bool isDangerous = false;
+                auto trimSet = [](AString s, std::string_view chars) -> AString {
+                    while (!s.empty() && chars.find(s.bytes().front()) != std::string_view::npos) {
+                        s = s.substr(1);
+                    }
+                    while (!s.empty() && chars.find(s.bytes().back()) != std::string_view::npos) {
+                        s = s.substr(0, s.length() - 1);
+                    }
+                    return s;
+                };
+
                 for (const auto& token : tokens) {
-                    AString cleanToken = token.trim(";&|()<>");
+                    AString cleanToken = trimSet(token, ";&|()<>");
                     for (const auto& dangerous : blacklist) {
                         if (cleanToken == dangerous) {
                             isDangerous = true;

@@ -27,7 +27,7 @@ struct OpenAITools {
             AVector<AString> required; // required properties
             bool additionalProperties = false;
         } parameters;
-        bool strict = true;
+        bool strict = false;
         Handler handler;
     };
 

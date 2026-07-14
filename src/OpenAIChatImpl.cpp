@@ -178,8 +178,7 @@ _<IOpenAIChat::StreamingResponse> OpenAIChatImpl::chatStreaming(Params params, I
             while (!jsonTempBuffer.empty()) {
                 ATokenizer tokenizer(std::make_unique<AByteBufferInputStream>(jsonTempBuffer));
                 AString command = tokenizer.readStringWhile([](char c) {
-                    return c != '{' && c != '
-';
+                    return c != '{' && c != '\n';
                 });
                 if (command.startsWith("data: [DONE]")) {
                     break;
@@ -221,7 +220,7 @@ _<IOpenAIChat::StreamingResponse> OpenAIChatImpl::chatStreaming(Params params, I
                                                        try {
                                                            parseBuffer();
                                                        } catch (const AJsonException& e) {
-                                                           // "unexpected" eof, parse later
+                                                           // \"unexpected\" eof, parse later
                                                        }
                                                        return buffer.size();
                                                    })

@@ -44,19 +44,34 @@ AString IOpenAIChat::embedImage(AImageView image) {
 AJson OpenAIChatImpl::makeQueryString(Params params, const IOpenAIChat::Session& messages) {
     ALOG_TRACE(LOG_TAG) << "makeQueryString";
     AUI_ASSERT(!messages.sessionId.empty());
+    auto messagesJson = aui::to_json(messages);
+    for (auto& msg : messagesJson.asArray()) {
+        auto& msgObj = msg.asObject();
+        if (msgObj.contains("reasoning") && msgObj["reasoning"].asString().empty()) {
+            msgObj.removeIf([](const auto& pair) { return pair.first == "reasoning"; });
+        }
+        if (msgObj.contains("reasoning_content") && msgObj["reasoning_content"].asString().empty()) {
+            msgObj.removeIf([](const auto& pair) { return pair.first == "reasoning_content"; });
+        }
+        if (msgObj.contains("tool_call_id") && msgObj["tool_call_id"].asString().empty()) {
+            msgObj.removeIf([](const auto& pair) { return pair.first == "tool_call_id"; });
+        }
+        if (msgObj.contains("tool_calls") && msgObj["tool_calls"].asArray().empty()) {
+            msgObj.removeIf([](const auto& pair) { return pair.first == "tool_calls"; });
+        }
+    }
     AJson json {
         {
           "messages",
-          aui::to_json(messages),
+          messagesJson,
         },
         { "max_tokens", params.maxOutputTokens },   // hopefully helps with stuck prediction (infinite reasoning)
         { "stream", false },
-        { "use_context", false },
-        { "include_sources", true },
         { "model", params.config.model },
-        { "tools", params.tools },
-        { "session_id", messages.sessionId },
     };
+    if (params.tools.isArray() && !params.tools.asArray().empty()) {
+        json["tools"] = params.tools;
+    }
 
     if (config().llmTemperature) {
         json["temperature"] = *config().llmTemperature;

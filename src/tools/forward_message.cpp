@@ -17,10 +17,9 @@ OpenAITools::Tool tools::forwardMessage(_<ITelegramClient> telegram, _<td::td_ap
                        "interesting after the forward."_format(fromChat->title_),
         .parameters = {
             .properties = {
-                {"message_ids", {
-                    .type = "array",
-                    .description = "IDs of the messages to forward. Taken from message_id attributes in <message> tags. "
-                                   "Pass a single-element array to forward just one message.",
+                {"message_id", {
+                    .type = "integer",
+                    .description = "ID of the message to forward. Taken from message_id attribute in <message> tag.",
                 }},
                 {"to_chat_id", {
                     .type = "integer",
@@ -33,21 +32,15 @@ OpenAITools::Tool tools::forwardMessage(_<ITelegramClient> telegram, _<td::td_ap
                                    "Express your reaction, thoughts, or why you found this interesting.",
                 }},
             },
-            .required = {"message_ids", "to_chat_id"},
+            .required = {"message_id", "to_chat_id"},
         },
         .handler = [telegram, fromChat](OpenAITools::Ctx ctx) -> AFuture<AString> {
             auto toChatId  = util::jsonAsLongInt(ctx.args["to_chat_id"]).valueOrException("to_chat_id integer required");
             auto comment   = ctx.args["comment"].asStringOpt();
 
-            auto& idsJson = ctx.args["message_ids"];
-            if (!idsJson.isArray()) throw AException("message_ids must be an array");
-            std::vector<std::int64_t> messageIds;
-            for (const auto& v : idsJson.asArray()) {
-                messageIds.push_back(util::jsonAsLongInt(v).valueOrException("message_ids must contain integers"));
-            }
-            if (messageIds.empty()) throw AException("message_ids must not be empty");
-
-            auto messageCount = messageIds.size();
+            auto messageId = util::jsonAsLongInt(ctx.args["message_id"]).valueOrException("message_id integer required");
+            std::vector<std::int64_t> messageIds = { messageId };
+            auto messageCount = 1;
 
             ALogger::info(LOG_TAG) << "Forwarding " << messageCount << " message(s)"
                                    << " from chat " << fromChat->id_

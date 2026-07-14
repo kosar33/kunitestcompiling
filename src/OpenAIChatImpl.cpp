@@ -198,30 +198,39 @@ _<IOpenAIChat::StreamingResponse> OpenAIChatImpl::chatStreaming(Params params, I
         };
 
         AUI_ASSERT(!sessionId.empty());
-        AVector<AString> headers = {"Content-Type: application/json", "x-session-id: {}"_format(sessionId) };
-        if (!params.config.endpoint.bearerKey.empty()) {
-            headers << "Authorization: Bearer {}"_format(params.config.endpoint.bearerKey);
+        auto retryDelay = 2s;
+        for (int attempt = 0; attempt < 5; ++attempt) {
+            jsonTempBuffer.clear();
+            AVector<AString> headers = {"Content-Type: application/json", "x-session-id: {}"_format(sessionId) };
+                headers << "Authorization: Bearer {}"_format(params.config.endpoint.bearerKey);
+            }
+            auto httpResponse = co_await ACurl::Builder(params.config.endpoint.baseUrl + "chat/completions")
+                                                   .withMethod(ACurl::Method::HTTP_POST)
+                                                   .withTimeout(config().requestTimeoutSecs)
+                                                   .withHeaders(std::move(headers))
+                                                   .withBody(query.toStdString())
+                                                   .withWriteCallback([&parseBuffer, &jsonTempBuffer](AByteBufferView buffer) -> size_t {
+                                                       ALOG_TRACE(LOG_TAG) << "QueryStreaming piece " << buffer.toStdStringView();
+                                                       jsonTempBuffer << buffer;
+                                                       try {
+                                                           parseBuffer();
+                                                       } catch (const AJsonException& e) {
+                                                           // "unexpected" eof, parse later
+                                                       }
+                                                       return buffer.size();
+                                                   })
+                                                   .runAsync();
+            if (httpResponse.code == ACurl::ResponseCode(429)) {
+                ALogger::warn(LOG_TAG) << "chatStreaming: status=429 (Too Many Requests). Retrying in " << retryDelay.count() << "s...";
+                co_await AThread::asyncSleep(retryDelay);
+                retryDelay *= 2;
+                continue;
+            }
+            if (httpResponse.code != ACurl::ResponseCode::HTTP_200_OK) {
+                ALogger::warn(LOG_TAG) << "chatStreaming: status=" << httpResponse.code;
+            }
+            break;
         }
-        auto httpResponse = co_await ACurl::Builder(params.config.endpoint.baseUrl + "chat/completions")
-                                               .withMethod(ACurl::Method::HTTP_POST)
-                                               .withTimeout(config().requestTimeoutSecs)
-                                               .withHeaders(std::move(headers))
-                                               .withBody(query.toStdString())
-                                               .withWriteCallback([&parseBuffer, &jsonTempBuffer](AByteBufferView buffer) -> size_t {
-                                                   ALOG_TRACE(LOG_TAG) << "QueryStreaming piece " << buffer.toStdStringView();
-                                                   jsonTempBuffer << buffer;
-                                                   try {
-                                                       parseBuffer();
-                                                   } catch (const AJsonException& e) {
-                                                       // "unexpected" eof, parse later
-                                                   }
-                                                   return buffer.size();
-                                               })
-                                               .runAsync();
-        if (httpResponse.code != ACurl::ResponseCode::HTTP_200_OK) {
-            ALogger::warn(LOG_TAG) << "chatStreaming: status=" << httpResponse.code;
-        }
-        // finalize
         parseBuffer();
 
         // ensure we delivered all events before finishing the coroutine.

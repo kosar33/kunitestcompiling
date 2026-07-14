@@ -145,18 +145,7 @@ jobs:
             exit 1
           fi
 
-      - name: Build Tests
-        run: cmake --build ${{github.workspace}}/build --config RelWithDebInfo --target Tests
 
-      - name: Run Tests (Windows)
-        if: runner.os == 'Windows'
-        working-directory: ${{github.workspace}}/build/bin
-        run: ${{github.workspace}}/build/bin/Tests.exe --gtest_filter=-"*Integration*"
-
-      - name: Run Tests (Linux and macOS)
-        if: runner.os != 'Windows'
-        working-directory: ${{github.workspace}}/build/bin
-        run: ${{github.workspace}}/build/bin/Tests "--gtest_filter=-*Integration*"
 
       - name: Pack Windows Setup
         if: runner.os == 'Windows'

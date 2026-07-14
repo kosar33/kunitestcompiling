@@ -1,40 +1,28 @@
-//
-// Created by alex2772 on 3/2/26.
-//
-
 #include "TelegramClientImpl.h"
-
 #include "config.h"
 #include "AUI/Common/ATimer.h"
 #include "AUI/Util/kAUI.h"
 #include <thread>
+#include <string>
 
 using namespace std::chrono_literals;
 
 namespace {
 static constexpr auto LOG_TAG = "TelegramClient";
-}   // namespace
+}
 
 TelegramClientImpl::TelegramClientImpl() : mTgUpdateTimer(_new<ATimer>(1s)) {
-    ALOG_TRACE(LOG_TAG) << "TelegramClientImpl::TelegramClientImpl";
     setSlotsCallsOnlyOnMyThread(true);
-
     td::ClientManager::execute(td::td_api::make_object<td::td_api::setLogVerbosityLevel>(1));
     initClientManager();
-
     AObject::connect(mTgUpdateTimer->fired, me::update);
     mTgUpdateTimer->start();
 }
 
 AFuture<ITelegramClient::Object> TelegramClientImpl::sendQuery(td::td_api::object_ptr<td::td_api::Function> f) {
-    ALOG_TRACE(LOG_TAG) << "sendQuery " << td::td_api::to_string(f);
     if (mQueryCountLastUpdate++ >= 20) {
-        // Telegram is strict about using 3rdparty telegram clients. For this reason, we have to ensure that we wouldn't
-        // trigger their security leading to ban of the account.
-        ALogger::info(LOG_TAG) << "Too many calls to tdlib! Throttling...\n" << AStacktrace::capture(1, 8);
         co_await AThread::asyncSleep(1s);
     }
-
     auto query_id = ++mCurrentQueryId;
     AFuture<ITelegramClient::Object> result;
     mHandlers.emplace(query_id, [result](Object object) { result.supplyValue(std::move(object)); });
@@ -43,7 +31,6 @@ AFuture<ITelegramClient::Object> TelegramClientImpl::sendQuery(td::td_api::objec
 }
 
 void TelegramClientImpl::initClientManager() {
-    ALOG_TRACE(LOG_TAG) << "initClientManager";
     mClientManager = std::make_unique<td::ClientManager>();
     mClientId = mClientManager->create_client_id();
     sendQueryWithResult(td::td_api::make_object<td::td_api::getOption>("version"))
@@ -57,28 +44,6 @@ void TelegramClientImpl::initClientManager() {
 }
 
 void TelegramClientImpl::update() {
-    ALOG_TRACE(LOG_TAG) << "update";
-
-    switch (connectionState) {
-        case ConnectionState::INITIALIZING:
-            ALogger::info(LOG_TAG) << "Connection state: initializing...";
-            break;
-        case ConnectionState::CONNECTED:
-            break;
-        case ConnectionState::CONNECTING:
-            ALogger::info(LOG_TAG) << "Connection state: connecting... (check VPN/proxy settings)";
-            break;
-        case ConnectionState::CONNECTING_TO_PROXY:
-            ALogger::info(LOG_TAG) << "Connection state: connecting to proxy...";
-            break;
-        case ConnectionState::UPDATING:
-            ALogger::info(LOG_TAG) << "Connection state: updating...";
-            break;
-        case ConnectionState::WAITING_FOR_NETWORK:
-            ALogger::info(LOG_TAG) << "Connection state: waiting for network...";
-            break;
-    }
-
     mQueryCountLastUpdate = 0;
     for (;;) {
         auto response = mClientManager->receive(0);
@@ -90,24 +55,19 @@ void TelegramClientImpl::update() {
 }
 
 void TelegramClientImpl::processResponse(td::ClientManager::Response response) {
-    ALOG_TRACE(LOG_TAG) << "processResponse";
     if (!response.object) {
         return;
     }
-
     if (auto c = mHandlers.contains(response.request_id)) {
         auto handler = std::move(c->second);
         mHandlers.erase(*c);
         handler(std::move(response.object));
         return;
     }
-
     commonHandler(std::move(response.object));
 }
 
 void TelegramClientImpl::commonHandler(td::tl::unique_ptr<td::td_api::Object> object) {
-    ALOG_TRACE(LOG_TAG) << "commonHandler";
-    // move the ownership from unique_ptr to shared_ptr
     auto objectShared = aui::ptr::manage_shared(object.release());
     emit onEvent(objectShared);
     td::td_api::downcast_call(
@@ -122,7 +82,6 @@ void TelegramClientImpl::commonHandler(td::tl::unique_ptr<td::td_api::Object> ob
                         parameters->database_directory_ = "tdlib";
                         parameters->use_message_database_ = true;
                         parameters->use_secret_chats_ = true;
-
                         parameters->api_id_ = config().telegramApiId;
                         parameters->api_hash_ = config().telegramApiHash;
                         parameters->system_language_code_ = "en";
@@ -139,6 +98,8 @@ void TelegramClientImpl::commonHandler(td::tl::unique_ptr<td::td_api::Object> ob
                         std::thread([this, params = std::move(params)]() mutable {
                             ALogger::info("TelegramClient") << "\n[Authentication] required. Please supply phone number to stdin";
                             std::cin >> params->phone_number_;
+                            std::string dummy;
+                            std::getline(std::cin, dummy);
                             sendQuery(std::move(params)).onSuccess([](const ITelegramClient::Object& result) {
                                 if (result->get_id() == td::td_api::error::ID) {
                                     auto error = static_cast<const td::td_api::error*>(result.get());
@@ -152,6 +113,8 @@ void TelegramClientImpl::commonHandler(td::tl::unique_ptr<td::td_api::Object> ob
                         std::thread([this, params = std::move(params)]() mutable {
                             ALogger::info("TelegramClient") << "\n[Authentication] required. Please supply cloud password to stdin";
                             std::cin >> params->password_;
+                            std::string dummy;
+                            std::getline(std::cin, dummy);
                             sendQuery(std::move(params)).onSuccess([](const ITelegramClient::Object& result) {
                                 if (result->get_id() == td::td_api::error::ID) {
                                     auto error = static_cast<const td::td_api::error*>(result.get());
@@ -165,6 +128,8 @@ void TelegramClientImpl::commonHandler(td::tl::unique_ptr<td::td_api::Object> ob
                         std::thread([this, params = std::move(params)]() mutable {
                             ALogger::info("TelegramClient") << "\n[Authentication] required. Please supply verification code to stdin";
                             std::cin >> params->code_;
+                            std::string dummy;
+                            std::getline(std::cin, dummy);
                             sendQuery(std::move(params)).onSuccess([](const ITelegramClient::Object& result) {
                                 if (result->get_id() == td::td_api::error::ID) {
                                     auto error = static_cast<const td::td_api::error*>(result.get());
@@ -195,7 +160,6 @@ void TelegramClientImpl::commonHandler(td::tl::unique_ptr<td::td_api::Object> ob
                     [&](td::td_api::connectionStateWaitingForNetwork&) {
                         connectionState = ConnectionState::WAITING_FOR_NETWORK;
                     },
-
                     [&](td::td_api::connectionStateUpdating&) { connectionState = ConnectionState::UPDATING; },
                   });
           },
@@ -209,7 +173,6 @@ void TelegramClientImpl::commonHandler(td::tl::unique_ptr<td::td_api::Object> ob
                       });
               }
           },
-          // ── User cache updates ──────────────────────────────────────────
           [this](td::td_api::updateUser& u) {
               if (auto dst = mUserCache.contains(u.user_->id_)) {
                   dst->second->tg = std::move(*u.user_);
@@ -220,7 +183,6 @@ void TelegramClientImpl::commonHandler(td::tl::unique_ptr<td::td_api::Object> ob
                   dst->second->tg.status_ = std::move(u.status_);
               }
           },
-          // ── Chat cache updates ───────────────────────────────────────────
           [this](td::td_api::updateChatTitle& u) {
               if (auto dst = mChatCache.contains(u.chat_id_)) {
                   dst->second->tg.title_ = std::move(u.title_);

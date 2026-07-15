@@ -207,30 +207,48 @@ _<IOpenAIChat::StreamingResponse> OpenAIChatImpl::chatStreaming(Params params, I
             if (!params.config.endpoint.bearerKey.empty()) {
                 headers << "Authorization: Bearer {}"_format(params.config.endpoint.bearerKey);
             }
-            httpResponse = co_await ACurl::Builder(params.config.endpoint.baseUrl + "chat/completions")
-                                                   .withMethod(ACurl::Method::HTTP_POST)
-                                                   .withTimeout(config().requestTimeoutSecs)
-                                                   .withHeaders(std::move(headers))
-                                                   .withBody(query.toStdString())
-                                                   .withWriteCallback([&parseBuffer, &jsonTempBuffer](AByteBufferView buffer) -> size_t {
-                                                       ALOG_TRACE(LOG_TAG) << "QueryStreaming piece " << buffer.toStdStringView();
-                                                       jsonTempBuffer << buffer;
-                                                       try {
-                                                           parseBuffer();
-                                                       } catch (const AJsonException& e) {
-                                                           // "unexpected" eof, parse later
-                                                       }
-                                                       return buffer.size();
-                                                   })
-                                                   .runAsync();
-            if (static_cast<int>(httpResponse.code) == 429) {
-                ALogger::warn(LOG_TAG) << "chatStreaming: status=429 (Too Many Requests). Retrying in " << retryDelay.count() << "s...";
-                co_await AThread::asyncSleep(retryDelay);
-                retryDelay = std::chrono::seconds(static_cast<int64_t>(retryDelay.count() * config().llmRetryMultiplier));
-                if (retryDelay > config().llmRetryMaxDelay) {
-                    retryDelay = config().llmRetryMaxDelay;
+            try {
+                httpResponse = co_await ACurl::Builder(params.config.endpoint.baseUrl + "chat/completions")
+                                                       .withMethod(ACurl::Method::HTTP_POST)
+                                                       .withTimeout(config().requestTimeoutSecs)
+                                                       .withHeaders(std::move(headers))
+                                                       .withBody(query.toStdString())
+                                                       .withWriteCallback([&parseBuffer, &jsonTempBuffer](AByteBufferView buffer) -> size_t {
+                                                           ALOG_TRACE(LOG_TAG) << "QueryStreaming piece " << buffer.toStdStringView();
+                                                           jsonTempBuffer << buffer;
+                                                           try {
+                                                               parseBuffer();
+                                                           } catch (const AJsonException& e) {
+                                                               // "unexpected" eof, parse later
+                                                           }
+                                                           return buffer.size();
+                                                       })
+                                                       .runAsync();
+                int statusCode = static_cast<int>(httpResponse.code);
+                if (statusCode == 429 || (statusCode >= 500 && statusCode <= 599)) {
+                    if (attempt + 1 < static_cast<int>(config().llmRetryMaxAttempts)) {
+                        ALogger::warn(LOG_TAG) << "chatStreaming: status=" << statusCode 
+                                               << ". Retrying in " << retryDelay.count() << "s...";
+                        co_await AThread::asyncSleep(retryDelay);
+                        retryDelay = std::chrono::seconds(static_cast<int64_t>(retryDelay.count() * config().llmRetryMultiplier));
+                        if (retryDelay > config().llmRetryMaxDelay) {
+                            retryDelay = config().llmRetryMaxDelay;
+                        }
+                        continue;
+                    }
                 }
-                continue;
+            } catch (const AException& e) {
+                if (attempt + 1 < static_cast<int>(config().llmRetryMaxAttempts)) {
+                    ALogger::warn(LOG_TAG) << "chatStreaming: network error: " << e.getMessage() 
+                                           << ". Retrying in " << retryDelay.count() << "s...";
+                    co_await AThread::asyncSleep(retryDelay);
+                    retryDelay = std::chrono::seconds(static_cast<int64_t>(retryDelay.count() * config().llmRetryMultiplier));
+                    if (retryDelay > config().llmRetryMaxDelay) {
+                        retryDelay = config().llmRetryMaxDelay;
+                    }
+                    continue;
+                }
+                throw;
             }
             success = true;
             break;

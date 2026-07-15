@@ -255,7 +255,8 @@ _<IOpenAIChat::StreamingResponse> OpenAIChatImpl::chatStreaming(Params params, I
             break;
         }
         if (success && httpResponse.code != ACurl::ResponseCode::HTTP_200_OK) {
-            ALogger::warn(LOG_TAG) << "chatStreaming: status=" << httpResponse.code;
+            ALogger::warn(LOG_TAG) << "chatStreaming: status=" << httpResponse.code 
+                                   << " body=" << AString::fromUtf8(httpResponse.body);
         }
         // finalize
         parseBuffer();

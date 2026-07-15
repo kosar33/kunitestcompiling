@@ -172,6 +172,7 @@ _<IOpenAIChat::StreamingResponse> OpenAIChatImpl::chatStreaming(Params params, I
         };
 
         AByteBuffer jsonTempBuffer;
+        AString lastRawResponse;
         auto parseBuffer = [&, processJson] {
             while (!jsonTempBuffer.empty()) {
                 ATokenizer tokenizer(std::make_unique<AByteBufferInputStream>(jsonTempBuffer));
@@ -203,6 +204,7 @@ _<IOpenAIChat::StreamingResponse> OpenAIChatImpl::chatStreaming(Params params, I
         bool success = false;
         for (int attempt = 0; attempt < static_cast<int>(config().llmRetryMaxAttempts); ++attempt) {
             jsonTempBuffer.clear();
+            lastRawResponse.clear();
             AVector<AString> headers = {"Content-Type: application/json", "x-session-id: {}"_format(sessionId) };
             if (!params.config.endpoint.bearerKey.empty()) {
                 headers << "Authorization: Bearer {}"_format(params.config.endpoint.bearerKey);
@@ -215,9 +217,10 @@ _<IOpenAIChat::StreamingResponse> OpenAIChatImpl::chatStreaming(Params params, I
                                                        .withTimeout(config().requestTimeoutSecs)
                                                        .withHeaders(std::move(headers))
                                                        .withBody(query.toStdString())
-                                                       .withWriteCallback([&parseBuffer, &jsonTempBuffer](AByteBufferView buffer) -> size_t {
+                                                       .withWriteCallback([&parseBuffer, &jsonTempBuffer, &lastRawResponse](AByteBufferView buffer) -> size_t {
                                                            ALOG_TRACE(LOG_TAG) << "QueryStreaming piece " << buffer.toStdStringView();
                                                            jsonTempBuffer << buffer;
+                                                           lastRawResponse += AString::fromUtf8(buffer);
                                                            try {
                                                                parseBuffer();
                                                            } catch (const AJsonException& e) {
@@ -256,7 +259,7 @@ _<IOpenAIChat::StreamingResponse> OpenAIChatImpl::chatStreaming(Params params, I
         }
         if (success && httpResponse.code != ACurl::ResponseCode::HTTP_200_OK) {
             ALogger::warn(LOG_TAG) << "chatStreaming: status=" << httpResponse.code 
-                                   << " body=" << AString::fromUtf8(httpResponse.body);
+                                   << " body=" << lastRawResponse;
         }
         // finalize
         parseBuffer();

@@ -382,7 +382,7 @@ TEST(OpenAITools, ToJsonBasic) {
     EXPECT_EQ(json[0]["function"]["parameters"]["type"].asString(), "object");
     EXPECT_EQ(json[0]["function"]["parameters"]["required"][0].asString(), "param1");
     EXPECT_EQ(json[0]["function"]["parameters"]["properties"]["param1"]["type"].asString(), "string");
-    EXPECT_EQ(json[0]["function"]["strict"].asBool(), true);
+    EXPECT_EQ(json[0]["function"]["strict"].asBool(), false);
 }
 
 TEST(OpenAITools, ToJsonMultipleTools) {

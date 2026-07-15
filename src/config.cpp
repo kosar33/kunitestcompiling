@@ -296,6 +296,22 @@ static const std::unordered_map<AStringView, AStringView> CONFIG_COMMENTS = {
       "Increase this if your LLM backend is slow to respond (e.g. big local models on weak hardware).",
     },
     {
+      "misc.llm_retry_initial_delay",
+      "Initial delay (in seconds) before retrying a failed LLM request on 429 Too Many Requests.",
+    },
+    {
+      "misc.llm_retry_max_delay",
+      "Maximum delay (in seconds) for exponential backoff retries on 429 errors.",
+    },
+    {
+      "misc.llm_retry_max_attempts",
+      "Maximum number of retry attempts for LLM requests.",
+    },
+    {
+      "misc.llm_retry_multiplier",
+      "Multiplier for exponential backoff retry delays.",
+    },
+    {
       "misc.video_max_frames",
       "Maximum number of frames sampled from a video/GIF/video-sticker for captioning.\n"
       "Frames are spread evenly across the video duration. Higher values give the LLM more context\n"

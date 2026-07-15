@@ -36,6 +36,10 @@
   X(size_t, antiRepeatMaxHistory, 32, "misc.anti_repeat_max_history") \
   X(float, suggestIgnoreChance, 0.1f, "misc.suggest_ignore_chance") \
   X(std::chrono::seconds, requestTimeoutSecs, std::chrono::seconds(30), "misc.request_timeout_secs") \
+  X(std::chrono::seconds, llmRetryInitialDelay, std::chrono::seconds(2), "misc.llm_retry_initial_delay") \
+  X(std::chrono::seconds, llmRetryMaxDelay, std::chrono::seconds(32), "misc.llm_retry_max_delay") \
+  X(size_t, llmRetryMaxAttempts, 5, "misc.llm_retry_max_attempts") \
+  X(float, llmRetryMultiplier, 2.0f, "misc.llm_retry_multiplier") \
   X(size_t, videoMaxFrames, 16, "misc.video_max_frames") \
   X(size_t, videoMinStepMs, 1000, "misc.video_min_step_ms") \
   X(bool, remindUseAsk, true, "misc.remind_use_ask") \

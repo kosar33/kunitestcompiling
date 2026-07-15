@@ -136,13 +136,13 @@ _<IOpenAIChat::StreamingResponse> OpenAIChatImpl::chatStreaming(Params params, I
         json["stream"] = true;
         return AJson::toString(json);
     }();
-    AFileOutputStream("last_query.json") << query.toStdString();
+    AString queryToSave = query; // Copy query to avoid move after use
     static const auto logsDir = APath("logs");
     logsDir.makeDirs();
     const auto now = std::chrono::system_clock::now();
-    AFileOutputStream(logsDir / "{}.0query.json"_format(now)) << query.toStdString();
+    AFileOutputStream(logsDir / "{}.0query.json"_format(now)) << queryToSave.toStdString();
 
-    ALOG_TRACE(LOG_TAG) << "QueryStreaming: " << query;
+    ALOG_TRACE(LOG_TAG) << "QueryStreaming: " << queryToSave;
     auto result = _new<IOpenAIChat::StreamingResponse>();
 
     // Subscribe to response changes and print incrementally to the TUI.
@@ -198,27 +198,44 @@ _<IOpenAIChat::StreamingResponse> OpenAIChatImpl::chatStreaming(Params params, I
         };
 
         AUI_ASSERT(!sessionId.empty());
-        AVector<AString> headers = {"Content-Type: application/json", "x-session-id: {}"_format(sessionId) };
-        if (!params.config.endpoint.bearerKey.empty()) {
-            headers << "Authorization: Bearer {}"_format(params.config.endpoint.bearerKey);
+        auto retryDelay = config().llmRetryInitialDelay;
+        ACurl::Response httpResponse;
+        bool success = false;
+        for (int attempt = 0; attempt < static_cast<int>(config().llmRetryMaxAttempts); ++attempt) {
+            jsonTempBuffer.clear();
+            AVector<AString> headers = {"Content-Type: application/json", "x-session-id: {}"_format(sessionId) };
+            if (!params.config.endpoint.bearerKey.empty()) {
+                headers << "Authorization: Bearer {}"_format(params.config.endpoint.bearerKey);
+            }
+            httpResponse = co_await ACurl::Builder(params.config.endpoint.baseUrl + "chat/completions")
+                                                   .withMethod(ACurl::Method::HTTP_POST)
+                                                   .withTimeout(config().requestTimeoutSecs)
+                                                   .withHeaders(std::move(headers))
+                                                   .withBody(query.toStdString())
+                                                   .withWriteCallback([&parseBuffer, &jsonTempBuffer](AByteBufferView buffer) -> size_t {
+                                                       ALOG_TRACE(LOG_TAG) << "QueryStreaming piece " << buffer.toStdStringView();
+                                                       jsonTempBuffer << buffer;
+                                                       try {
+                                                           parseBuffer();
+                                                       } catch (const AJsonException& e) {
+                                                           // "unexpected" eof, parse later
+                                                       }
+                                                       return buffer.size();
+                                                   })
+                                                   .runAsync();
+            if (static_cast<int>(httpResponse.code) == 429) {
+                ALogger::warn(LOG_TAG) << "chatStreaming: status=429 (Too Many Requests). Retrying in " << retryDelay.count() << "s...";
+                co_await AThread::asyncSleep(retryDelay);
+                retryDelay = std::chrono::seconds(static_cast<int64_t>(retryDelay.count() * config().llmRetryMultiplier));
+                if (retryDelay > config().llmRetryMaxDelay) {
+                    retryDelay = config().llmRetryMaxDelay;
+                }
+                continue;
+            }
+            success = true;
+            break;
         }
-        auto httpResponse = co_await ACurl::Builder(params.config.endpoint.baseUrl + "chat/completions")
-                                               .withMethod(ACurl::Method::HTTP_POST)
-                                               .withTimeout(config().requestTimeoutSecs)
-                                               .withHeaders(std::move(headers))
-                                               .withBody(query.toStdString())
-                                               .withWriteCallback([&parseBuffer, &jsonTempBuffer](AByteBufferView buffer) -> size_t {
-                                                   ALOG_TRACE(LOG_TAG) << "QueryStreaming piece " << buffer.toStdStringView();
-                                                   jsonTempBuffer << buffer;
-                                                   try {
-                                                       parseBuffer();
-                                                   } catch (const AJsonException& e) {
-                                                       // "unexpected" eof, parse later
-                                                   }
-                                                   return buffer.size();
-                                               })
-                                               .runAsync();
-        if (httpResponse.code != ACurl::ResponseCode::HTTP_200_OK) {
+        if (success && httpResponse.code != ACurl::ResponseCode::HTTP_200_OK) {
             ALogger::warn(LOG_TAG) << "chatStreaming: status=" << httpResponse.code;
         }
         // finalize

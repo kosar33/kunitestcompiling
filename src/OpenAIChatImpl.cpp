@@ -207,6 +207,8 @@ _<IOpenAIChat::StreamingResponse> OpenAIChatImpl::chatStreaming(Params params, I
             if (!params.config.endpoint.bearerKey.empty()) {
                 headers << "Authorization: Bearer {}"_format(params.config.endpoint.bearerKey);
             }
+            bool shouldRetry = false;
+            AString errorMsg;
             try {
                 httpResponse = co_await ACurl::Builder(params.config.endpoint.baseUrl + "chat/completions")
                                                        .withMethod(ACurl::Method::HTTP_POST)
@@ -226,20 +228,20 @@ _<IOpenAIChat::StreamingResponse> OpenAIChatImpl::chatStreaming(Params params, I
                                                        .runAsync();
                 int statusCode = static_cast<int>(httpResponse.code);
                 if (statusCode == 429 || (statusCode >= 500 && statusCode <= 599)) {
-                    if (attempt + 1 < static_cast<int>(config().llmRetryMaxAttempts)) {
-                        ALogger::warn(LOG_TAG) << "chatStreaming: status=" << statusCode 
-                                               << ". Retrying in " << retryDelay.count() << "s...";
-                        co_await AThread::asyncSleep(retryDelay);
-                        retryDelay = std::chrono::seconds(static_cast<int64_t>(retryDelay.count() * config().llmRetryMultiplier));
-                        if (retryDelay > config().llmRetryMaxDelay) {
-                            retryDelay = config().llmRetryMaxDelay;
-                        }
-                        continue;
-                    }
+                    shouldRetry = true;
+                    errorMsg = "status=" + AString::number(statusCode);
                 }
             } catch (const AException& e) {
                 if (attempt + 1 < static_cast<int>(config().llmRetryMaxAttempts)) {
-                    ALogger::warn(LOG_TAG) << "chatStreaming: network error: " << e.getMessage() 
+                    shouldRetry = true;
+                    errorMsg = "network error: " + e.getMessage();
+                } else {
+                    throw;
+                }
+            }
+            if (shouldRetry) {
+                if (attempt + 1 < static_cast<int>(config().llmRetryMaxAttempts)) {
+                    ALogger::warn(LOG_TAG) << "chatStreaming: " << errorMsg 
                                            << ". Retrying in " << retryDelay.count() << "s...";
                     co_await AThread::asyncSleep(retryDelay);
                     retryDelay = std::chrono::seconds(static_cast<int64_t>(retryDelay.count() * config().llmRetryMultiplier));
@@ -248,7 +250,6 @@ _<IOpenAIChat::StreamingResponse> OpenAIChatImpl::chatStreaming(Params params, I
                     }
                     continue;
                 }
-                throw;
             }
             success = true;
             break;

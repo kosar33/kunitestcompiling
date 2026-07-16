@@ -174,27 +174,32 @@ _<IOpenAIChat::StreamingResponse> OpenAIChatImpl::chatStreaming(Params params, I
         AByteBuffer jsonTempBuffer;
         AString lastRawResponse;
         auto parseBuffer = [&, processJson] {
-            while (!jsonTempBuffer.empty()) {
-                ATokenizer tokenizer(std::make_unique<AByteBufferInputStream>(jsonTempBuffer));
-                AString command = tokenizer.readStringWhile([](char c) {
-                    return c != '{' && c != '\n';
-                });
-                if (command.startsWith("data: [DONE]")) {
+            for (;;) {
+                auto view = AStringView(reinterpret_cast<const char*>(jsonTempBuffer.data()), jsonTempBuffer.size());
+                auto end = view.find("\n\n");
+                if (end == std::string::npos) {
+                    break; // Ждем полного завершения SSE пакета
+                }
+                
+                auto line = view.substr(0, end);
+                if (line.startsWith("data: [DONE]")) {
+                    jsonTempBuffer.erase(jsonTempBuffer.begin(), jsonTempBuffer.begin() + end + 2);
                     break;
                 }
-                AUI_DEFER {
-                    const auto end = AStringView(jsonTempBuffer.data(), jsonTempBuffer.size()).find("\n\n");
-                    const auto at = end == std::string::npos ? jsonTempBuffer.end() : jsonTempBuffer.begin() + end + 2;
-                    jsonTempBuffer.erase(jsonTempBuffer.begin(), at);
-                };
-
-                if (!command.startsWith("data:")) {
-                    continue;
+                
+                if (line.startsWith("data:")) {
+                    try {
+                        AString jsonStr = AString(line.substr(5)).trim();
+                        if (!jsonStr.empty()) {
+                            auto json = AJson::fromString(jsonStr);
+                            processJson(std::move(json));
+                        }
+                    } catch (const AException& e) {
+                        // Игнорируем ошибки парсинга сломанного или недокачанного JSON
+                    }
                 }
-
-                auto json = AJson::fromBuffer(jsonTempBuffer.slice(command.bytes().length()));
-                processJson(std::move(json));
-
+                
+                jsonTempBuffer.erase(jsonTempBuffer.begin(), jsonTempBuffer.begin() + end + 2);
             }
         };
 
@@ -223,8 +228,8 @@ _<IOpenAIChat::StreamingResponse> OpenAIChatImpl::chatStreaming(Params params, I
                                                            lastRawResponse += AString::fromUtf8(buffer);
                                                            try {
                                                                parseBuffer();
-                                                           } catch (const AJsonException& e) {
-                                                               // "unexpected" eof, parse later
+                                                           } catch (const AException& e) {
+                                                               // ignore parser errors
                                                            }
                                                            return buffer.size();
                                                        })
@@ -262,7 +267,9 @@ _<IOpenAIChat::StreamingResponse> OpenAIChatImpl::chatStreaming(Params params, I
                                    << " body=" << lastRawResponse;
         }
         // finalize
-        parseBuffer();
+        try {
+            parseBuffer();
+        } catch (const AException& e) {}
 
         // ensure we delivered all events before finishing the coroutine.
 #if AUI_DEBUG
@@ -284,6 +291,31 @@ _<IOpenAIChat::StreamingResponse> OpenAIChatImpl::chatStreaming(Params params, I
 
 AFuture<std::valarray<double>> OpenAIChatImpl::embedding(Params params, AString input) {
     ALOG_TRACE(LOG_TAG) << "embedding";
+
+    std::string str = input.toStdString();
+    
+    // Вырезаем теги <kuni_embedding> и их содержимое (Base64 картинки), 
+    // чтобы они не загрязняли базу и не крашили Ollama из-за огромного размера.
+    std::string tag = "<" + AString(IOpenAIChat::EMBEDDING_TAG).toStdString() + ">";
+    std::string endTag = "</" + AString(IOpenAIChat::EMBEDDING_TAG).toStdString() + ">";
+    
+    for (;;) {
+        auto start = str.find(tag);
+        if (start == std::string::npos) break;
+        auto end = str.find(endTag, start);
+        if (end == std::string::npos) {
+            str.erase(start);
+            break;
+        }
+        str.erase(start, end + endTag.length() - start);
+    }
+
+    // Жестко ограничиваем длину безопасными 16 000 символами (~4000 токенов)
+    if (str.length() > 16000) {
+        str = str.substr(str.length() - 16000);
+    }
+    
+    input = AString(str);
     if (input.empty()) {
         input = " ";
     }

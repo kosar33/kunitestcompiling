@@ -14,7 +14,7 @@ AJSON_FIELDS(OpenAITools::Tool::Parameters,
              AJSON_FIELDS_ENTRY(type) AJSON_FIELDS_ENTRY(properties) AJSON_FIELDS_ENTRY(required)
                      AJSON_FIELDS_ENTRY(additionalProperties))
 
-AJSON_FIELDS(OpenAITools::Tool, AJSON_FIELDS_ENTRY(type) AJSON_FIELDS_ENTRY(name) AJSON_FIELDS_ENTRY(description)
+AJSON_FIELDS(OpenAITools::Tool, AJSON_FIELDS_ENTRY(name) AJSON_FIELDS_ENTRY(description)
                                         AJSON_FIELDS_ENTRY(parameters) AJSON_FIELDS_ENTRY(strict))
 
 

@@ -22,6 +22,7 @@ struct OpenAITools {
             struct Property {
                 AString type = "string";
                 AString description;
+                AOptional<AJson> items;
             };
             AMap<AString, Property> properties;
             AVector<AString> required; // required properties

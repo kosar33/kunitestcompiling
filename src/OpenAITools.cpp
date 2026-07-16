@@ -8,7 +8,7 @@
 #include <range/v3/range/conversion.hpp>
 #include <range/v3/view/transform.hpp>
 
-AJSON_FIELDS(OpenAITools::Tool::Parameters::Property, AJSON_FIELDS_ENTRY(type) AJSON_FIELDS_ENTRY(description))
+AJSON_FIELDS(OpenAITools::Tool::Parameters::Property, AJSON_FIELDS_ENTRY(type) AJSON_FIELDS_ENTRY(description) (items, "items", AJsonFieldFlags::OPTIONAL))
 
 AJSON_FIELDS(OpenAITools::Tool::Parameters,
              AJSON_FIELDS_ENTRY(type) AJSON_FIELDS_ENTRY(properties) AJSON_FIELDS_ENTRY(required)

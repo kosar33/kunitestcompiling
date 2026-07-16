@@ -21,6 +21,7 @@ OpenAITools::Tool tools::forwardMessage(_<ITelegramClient> telegram, _<td::td_ap
                     .type = "array",
                     .description = "IDs of the messages to forward. Taken from message_id attributes in <message> tags. "
                                    "Pass a single-element array to forward just one message.",
+                    .items = AJson::Object{{"type", "integer"}},
                 }},
                 {"to_chat_id", {
                     .type = "integer",

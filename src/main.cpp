@@ -69,6 +69,8 @@ using namespace std::chrono_literals;
 
 std::default_random_engine gRandomEngine(std::time(nullptr));
 
+#include "tools/run_terminal_command.h"
+
 namespace {
 
 constexpr auto LOG_TAG = "App";
@@ -150,6 +152,7 @@ protected:
 
     void updateTools(OpenAITools& actions) override {
         AppBase::updateTools(actions);
+        actions.insert(tools::runTerminalCommand());
         if (config().capabilityTakePhoto) {
             actions.insert(tools::takePhoto(_new<StableDiffusionClientImpl>(), openAI()));
         }

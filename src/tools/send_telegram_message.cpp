@@ -103,7 +103,7 @@ OpenAITools::Tool tools::sendTelegramMessage(
             const auto photoFilename = ctx.args["photo_filename"].asStringOpt().valueOr("");
             const auto audioFilename = ctx.args["audio_filename"].asStringOpt().valueOr("");
             // intentionally not listed in arguments, just to disable in tests
-            const auto allowTypos = ctx.args["allow_typos"].asBoolOpt().valueOr(true);
+            const auto allowTypos = ctx.args["allow_typos"].asBoolOpt().valueOr(false);
             const auto replyTo = [&]() -> int64_t {
                 const auto value = util::jsonAsLongInt(ctx.args["reply_to_message_id"]).valueOr(0);
                 if (state->lastReplyToMessageId == value) {

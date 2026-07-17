@@ -511,7 +511,7 @@ static void scanUnaccessedValues(const toml::ordered_table& table) {
     }
 }
 
-static Config load(bool saveBack = false) {
+static Config load(bool saveBack = false, bool isInitial = false) {
     // if (!APath(CONFIG_TOML).isRegularFileExists()) {
     //     // config.toml does not exist - so we create one.
     //     save(toml::value(Config {}));
@@ -596,7 +596,7 @@ static Config load(bool saveBack = false) {
             if (value.as_integer() == 0) {
                 ALogger::err(LOG_TAG) << toml::format_error((toml::make_error_info(
                     "general.telegram_api_id should be populated", value, "the actual value is 0")));
-                std::exit(-1);
+                if (isInitial) std::exit(-1); else throw AException("telegram_api_id is invalid");
             }
         }
         {
@@ -604,7 +604,7 @@ static Config load(bool saveBack = false) {
             if (value.as_string().empty()) {
                 ALogger::err(LOG_TAG) << toml::format_error((toml::make_error_info(
                     "general.telegram_api_hash should be populated", value, "the actual string is empty")));
-                std::exit(-1);
+                if (isInitial) std::exit(-1); else throw AException("telegram_api_hash is invalid");
             }
         }
         {
@@ -614,7 +614,7 @@ static Config load(bool saveBack = false) {
                     "misc.suggest_ignore_chance should be between 0.0 and 1.0",
                     value,
                     "the actual value is out of valid range")));
-                std::exit(-1);
+                if (isInitial) std::exit(-1); else throw AException("suggest_ignore_chance is invalid");
             }
         }
     }
@@ -626,7 +626,7 @@ static Config load(bool saveBack = false) {
 emits<> gConfigUpdated;
 
 const Config& config() {
-    static Config cfg = load(true);
+    static Config cfg = load(true, true);
     AUI_DO_ONCE {
         static auto watcher = _new<util::FileWatcher>();
         auto h = watcher->addWatch(APath(CONFIG_TOML).absolute(), util::FileWatcher::Mask::MODIFY);
@@ -636,7 +636,7 @@ const Config& config() {
             }
             ALogger::info(LOG_TAG) << CONFIG_TOML << " updated - reloading";
             try {
-                cfg = load();
+                cfg = load(false, false);
             } catch (const AException& e) {
                 ALogger::err(LOG_TAG) << e;
             } catch (const std::exception& e) {

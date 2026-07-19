@@ -10,10 +10,13 @@
 #include <cstring>
 #include <thread>
 #include <chrono>
+#include <mutex>
+#include <cctype>
 
-#include "AUI/Logging/ALogger.h"
-#include "AUI/Thread/AThreadPool.h"
-#include "AUI/IO/APath.h"
+#include <AUI/Logging/ALogger.h>
+#include <AUI/Thread/AThreadPool.h>
+#include <AUI/IO/APath.h>
+#include <AUI/Util/kAUI.h>
 
 namespace tools {
 
@@ -80,7 +83,7 @@ OpenAITools::Tool runTerminalCommand() {
                 append_to_payload(arg);
             }
 
-            co_return co_await AUI_THREADPOOL_X [payload = std::move(payload)]() -> AString {
+            auto task = AUI_THREADPOOL_X [payload = std::move(payload)]() -> AString {
                 APath logPath = APath("logs/terminal_history.log").absolute();
                 logPath.parent().makeDirs();
                 int log_fd = open(logPath.toStdString().c_str(), O_WRONLY | O_APPEND | O_CREAT, 0644);
@@ -156,6 +159,7 @@ OpenAITools::Tool runTerminalCommand() {
                 close(sock);
                 return final_output.empty() ? "[Command produced no output]" : final_output.c_str();
             };
+            co_return co_await task;
         }
     };
 }

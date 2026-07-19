@@ -10,8 +10,8 @@
 #include <cerrno>
 #include <poll.h>
 #include <sys/prctl.h>
-#include <chrono>
 #include <sys/stat.h>
+#include <chrono>
 
 ssize_t recv_cmd_and_fd(int sock, char* buf, size_t buf_size, int* received_fd) {
     struct msghdr msg;
@@ -45,7 +45,7 @@ ssize_t recv_cmd_and_fd(int sock, char* buf, size_t buf_size, int* received_fd) 
 }
 
 void handle_client(int client_sock) {
-    send(client_sock, "K", 1, 0); // Handshake ACK
+    send(client_sock, "K", 1, 0);
 
     char buf[8192];
     int log_fd = -1;
@@ -79,7 +79,7 @@ void handle_client(int client_sock) {
         binary != "/usr/bin/tail" && binary != "/usr/bin/head" && 
         binary != "/bin/df" && binary != "/usr/bin/free" && 
         binary != "/usr/bin/git" && binary != "/usr/bin/tree") {
-        std::string err = "Error: Sandbox violation. Binary not allowed.\\n";
+        std::string err = "Error: Sandbox violation.\n";
         send(client_sock, err.data(), err.size(), 0);
         close(client_sock);
         if (log_fd != -1) close(log_fd);
@@ -89,20 +89,11 @@ void handle_client(int client_sock) {
     for (size_t i = 1; i < args.size() - 1; ++i) {
         std::string arg(args[i]);
         if (arg.find("..") != std::string::npos || arg == "-f" || arg == "--follow") {
-            std::string err = "Error: Sandbox violation. Forbidden argument pattern.\\n";
+            std::string err = "Error: Forbidden argument pattern.\n";
             send(client_sock, err.data(), err.size(), 0);
             close(client_sock);
             if (log_fd != -1) close(log_fd);
             return;
-        }
-        for (char c : arg) {
-            if (!std::isalnum(c) && c != '-' && c != '_' && c != '.' && c != '/') {
-                std::string err = "Error: Sandbox violation. Forbidden characters in arguments.\\n";
-                send(client_sock, err.data(), err.size(), 0);
-                close(client_sock);
-                if (log_fd != -1) close(log_fd);
-                return;
-            }
         }
     }
 
@@ -115,8 +106,6 @@ void handle_client(int client_sock) {
 
     pid_t pid = fork();
     if (pid < 0) {
-        std::string err = "Error: fork failed\\n";
-        send(client_sock, err.data(), err.size(), 0);
         close(pipefd[0]); close(pipefd[1]);
         close(client_sock);
         if (log_fd != -1) close(log_fd);
@@ -131,9 +120,15 @@ void handle_client(int client_sock) {
         close(pipefd[1]);
 
         if (log_fd != -1) {
-            std::string log_msg = "[Sandbox] Executing: " + binary + "\\n";
+            std::string log_msg = "\n=========================\n[Sandbox] Executing: ";
+            for (const auto& arg : args) {
+                if (arg != nullptr) {
+                    log_msg += std::string(arg) + " ";
+                }
+            }
+            log_msg += "\n-------------------------\n";
             write(log_fd, log_msg.data(), log_msg.size());
-            close(log_fd);
+            close(log_fd); // Ребенок закрывает свою копию FD
         }
 
         prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0);
@@ -142,11 +137,9 @@ void handle_client(int client_sock) {
             setuid(65534);
         }
         execvp(args[0], args.data());
-        std::cerr << "execvp failed: " << strerror(errno) << "\\n";
         _exit(1);
     } else {
         close(pipefd[1]);
-        if (log_fd != -1) close(log_fd);
 
         struct pollfd pfd;
         pfd.fd = pipefd[0];
@@ -162,8 +155,6 @@ void handle_client(int client_sock) {
             int timeout_ms = 30000 - elapsed_ms;
 
             if (timeout_ms <= 0) {
-                std::string err = "\\n[Timeout reached]\\n";
-                send(client_sock, err.data(), err.size(), 0);
                 kill(pid, SIGKILL);
                 break;
             }
@@ -171,8 +162,6 @@ void handle_client(int client_sock) {
             int ret = poll(&pfd, 1, timeout_ms);
             if (ret <= 0) {
                 if (ret < 0 && errno == EINTR) continue;
-                std::string err = "\\n[Timeout reached]\\n";
-                send(client_sock, err.data(), err.size(), 0);
                 kill(pid, SIGKILL);
                 break;
             }
@@ -180,26 +169,37 @@ void handle_client(int client_sock) {
             if (pfd.revents & POLLIN) {
                 ssize_t n = read(pipefd[0], read_buf, sizeof(read_buf));
                 if (n <= 0) break; 
+                
                 if (total_sent + n > 4096) {
-                    std::string trunc_msg = "\\n[Output truncated: > 4KB]\\n";
+                    std::string trunc_msg = "\n[Output truncated: > 4KB]\n";
                     send(client_sock, read_buf, 4096 - total_sent, 0);
                     send(client_sock, trunc_msg.data(), trunc_msg.size(), 0);
+                    
+                    if (log_fd != -1) {
+                        write(log_fd, read_buf, 4096 - total_sent);
+                        write(log_fd, trunc_msg.data(), trunc_msg.size());
+                    }
                     kill(pid, SIGKILL); 
                     break;
                 }
+                
                 send(client_sock, read_buf, n, 0);
+                if (log_fd != -1) write(log_fd, read_buf, n); // Пишем в файл на хосте
                 total_sent += n;
             } else {
                 break; 
             }
         }
         close(pipefd[0]);
+        if (log_fd != -1) close(log_fd); // Родитель закрывает FD в самом конце
         waitpid(pid, nullptr, 0);
         close(client_sock);
     }
 }
 
 int main() {
+    umask(0000);
+
     const char* socket_path = "/tmp/kuni_sockets/worker.sock";
     unlink(socket_path);
 
@@ -212,7 +212,7 @@ int main() {
     strncpy(addr.sun_path, socket_path, sizeof(addr.sun_path) - 1);
 
     if (bind(server_sock, (struct sockaddr*)&addr, sizeof(addr)) == -1) return 1;
-    chmod(socket_path, 0777);
+    chmod(socket_path, 0777); // Выдаем права на сокет
     if (listen(server_sock, 5) == -1) return 1;
 
     while (true) {

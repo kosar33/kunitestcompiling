@@ -15,6 +15,7 @@
 
 #include <AUI/Logging/ALogger.h>
 #include <AUI/Thread/AThreadPool.h>
+#include <AUI/Thread/AFuture.h>
 #include <AUI/IO/APath.h>
 #include <AUI/Util/kAUI.h>
 
@@ -71,6 +72,9 @@ OpenAITools::Tool runTerminalCommand() {
                 }
             }
 
+            // 🔥 ЛОГИРУЕМ ТО, ЧТО ПОЙДЕТ В СОКЕТ
+            ALogger::info("runTerminalCommand") << "Sending to sandbox: " << binary << " " << processArgs.join(" ");
+
             std::vector<char> payload;
             auto append_to_payload = [&](const AString& str) {
                 const std::string s = str.toStdString();
@@ -83,7 +87,7 @@ OpenAITools::Tool runTerminalCommand() {
                 append_to_payload(arg);
             }
 
-            auto task = AUI_THREADPOOL_X [payload = std::move(payload)]() -> AString {
+            auto task = AUI_THREADPOOL_X [payload = std::move(payload), binary]() -> AString {
                 APath logPath = APath("logs/terminal_history.log").absolute();
                 logPath.parent().makeDirs();
                 int log_fd = open(logPath.toStdString().c_str(), O_WRONLY | O_APPEND | O_CREAT, 0644);

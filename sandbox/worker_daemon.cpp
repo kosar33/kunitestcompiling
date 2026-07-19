@@ -11,6 +11,7 @@
 #include <poll.h>
 #include <sys/prctl.h>
 #include <chrono>
+#include <sys/stat.h>
 
 ssize_t recv_cmd_and_fd(int sock, char* buf, size_t buf_size, int* received_fd) {
     struct msghdr msg;
@@ -211,6 +212,7 @@ int main() {
     strncpy(addr.sun_path, socket_path, sizeof(addr.sun_path) - 1);
 
     if (bind(server_sock, (struct sockaddr*)&addr, sizeof(addr)) == -1) return 1;
+    chmod(socket_path, 0777);
     if (listen(server_sock, 5) == -1) return 1;
 
     while (true) {

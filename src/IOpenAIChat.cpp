@@ -113,3 +113,50 @@ AJson AJsonConv<IOpenAIChat::Response::Usage, void>::toJson(const IOpenAIChat::R
     }
     return dst;
 }
+
+AJson AJsonConv<IOpenAIChat::Message::ToolCall>::toJson(const IOpenAIChat::Message::ToolCall& tc) {
+    AJson::Object obj;
+    if (!tc.id.empty()) {
+        obj["id"] = static_cast<const AString&>(tc.id);
+    }
+    obj["type"] = tc.type.empty() ? AString("function") : static_cast<const AString&>(tc.type);
+    obj["function"] = aui::to_json(tc.function);
+    return obj;
+}
+
+void AJsonConv<IOpenAIChat::Message::ToolCall>::fromJson(const AJson& json, IOpenAIChat::Message::ToolCall& dst) {
+    dst.id = json["id"].asStringOpt().valueOr("");
+    dst.type = json["type"].asStringOpt().valueOr("function");
+    dst.index = json["index"].asLongIntOpt().valueOr(0);
+    if (json.contains("function")) {
+        aui::from_json(json["function"], dst.function);
+    }
+}
+
+AJson AJsonConv<IOpenAIChat::Message>::toJson(const IOpenAIChat::Message& msg) {
+    AJson::Object obj;
+    obj["role"] = aui::to_json(msg.role);
+    obj["content"] = static_cast<const AString&>(msg.content);
+
+    if (!msg.name.empty()) {
+        obj["name"] = static_cast<const AString&>(msg.name);
+    }
+    if (!msg.reasoning.empty()) obj["reasoning"] = static_cast<const AString&>(msg.reasoning);
+    if (!msg.reasoning_content.empty()) obj["reasoning_content"] = static_cast<const AString&>(msg.reasoning_content);
+    if (!msg.tool_call_id.empty()) obj["tool_call_id"] = static_cast<const AString&>(msg.tool_call_id);
+    if (!msg.tool_calls.empty()) obj["tool_calls"] = aui::to_json(msg.tool_calls);
+
+    return obj;
+}
+
+void AJsonConv<IOpenAIChat::Message>::fromJson(const AJson& json, IOpenAIChat::Message& dst) {
+    if (json.contains("role")) aui::from_json(json["role"], dst.role);
+    dst.content = json["content"].asStringOpt().valueOr("");
+    dst.name = json["name"].asStringOpt().valueOr("");
+    dst.reasoning = json["reasoning"].asStringOpt().valueOr("");
+    dst.reasoning_content = json["reasoning_content"].asStringOpt().valueOr("");
+    dst.tool_call_id = json["tool_call_id"].asStringOpt().valueOr("");
+    if (json["tool_calls"].isArray()) {
+        aui::from_json(json["tool_calls"], dst.tool_calls);
+    }
+}

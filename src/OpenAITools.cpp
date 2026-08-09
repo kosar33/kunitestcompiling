@@ -8,7 +8,28 @@
 #include <range/v3/range/conversion.hpp>
 #include <range/v3/view/transform.hpp>
 
-AJSON_FIELDS(OpenAITools::Tool::Parameters::Property, AJSON_FIELDS_ENTRY(type) AJSON_FIELDS_ENTRY(description) (items, "items", AJsonFieldFlags::OPTIONAL))
+template<>
+struct AJsonConv<OpenAITools::Tool::Parameters::Property> {
+    static AJson toJson(const OpenAITools::Tool::Parameters::Property& prop) {
+        AJson::Object obj{
+            {"type", prop.type},
+            {"description", prop.description},
+        };
+
+        if (prop.items.hasValue() && !prop.items->isNull()) {
+            obj["items"] = *prop.items;
+        }
+        return obj;
+    }
+
+    static void fromJson(const AJson& json, OpenAITools::Tool::Parameters::Property& dst) {
+        dst.type = json["type"].asStringOpt().valueOr("string");
+        dst.description = json["description"].asStringOpt().valueOr("");
+        if (json.contains("items") && !json["items"].isNull()) {
+            dst.items = json["items"];
+        }
+    }
+};
 
 AJSON_FIELDS(OpenAITools::Tool::Parameters,
              AJSON_FIELDS_ENTRY(type) AJSON_FIELDS_ENTRY(properties) AJSON_FIELDS_ENTRY(required)

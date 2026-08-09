@@ -45,6 +45,7 @@ struct IOpenAIChat {
           } role;
         String content;
         String tool_call_id;
+        String name;
         String reasoning;
         String reasoning_content; // deepseek requires this
         struct ToolCall {
@@ -205,25 +206,24 @@ struct AJsonConv<IOpenAIChat::String> {
     }
 };
 
+// IOpenAIChat.h (в районе строки 200)
+
 AJSON_FIELDS(IOpenAIChat::Message::ToolCall::Function,
              (name, "name", AJsonFieldFlags::OPTIONAL)
              (arguments, "arguments", AJsonFieldFlags::OPTIONAL)
              )
 
-AJSON_FIELDS(IOpenAIChat::Message::ToolCall,
-             (id, "id", AJsonFieldFlags::OPTIONAL)
-             (type, "type", AJsonFieldFlags::OPTIONAL)
-             (function, "function", AJsonFieldFlags::OPTIONAL)
-             (index, "index", AJsonFieldFlags::OPTIONAL)
-             )
+template<>
+struct AJsonConv<IOpenAIChat::Message::ToolCall> {
+    static AJson toJson(const IOpenAIChat::Message::ToolCall& tc);
+    static void fromJson(const AJson& json, IOpenAIChat::Message::ToolCall& dst);
+};
 
-AJSON_FIELDS(IOpenAIChat::Message,
-             (role, "role", AJsonFieldFlags::OPTIONAL)
-             (content, "content", AJsonFieldFlags::OPTIONAL)
-             (reasoning, "reasoning", AJsonFieldFlags::OPTIONAL)
-             (reasoning_content, "reasoning_content", AJsonFieldFlags::OPTIONAL)
-             (tool_call_id, "tool_call_id", AJsonFieldFlags::OPTIONAL)(tool_calls, "tool_calls",
-                                                                          AJsonFieldFlags::OPTIONAL))
+template<>
+struct AJsonConv<IOpenAIChat::Message> {
+    static AJson toJson(const IOpenAIChat::Message& msg);
+    static void fromJson(const AJson& json, IOpenAIChat::Message& dst);
+};
 
 AJSON_FIELDS(IOpenAIChat::Response::Choice,
              AJSON_FIELDS_ENTRY(index) AJSON_FIELDS_ENTRY(message) AJSON_FIELDS_ENTRY(finish_reason))

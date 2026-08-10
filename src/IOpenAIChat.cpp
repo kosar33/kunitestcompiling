@@ -119,7 +119,7 @@ AJson AJsonConv<IOpenAIChat::Message::ToolCall>::toJson(const IOpenAIChat::Messa
     if (!tc.id.empty()) {
         obj["id"] = static_cast<const AString&>(tc.id);
     }
-    obj["type"] = tc.type.empty() ? AString("function") : static_cast<const AString&>(tc.type);
+    obj["type"] = AString("function");
     obj["function"] = aui::to_json(tc.function);
     return obj;
 }

@@ -58,10 +58,13 @@ struct IOpenAIChat {
             } function;
 
             ToolCall& operator+=(const ToolCall& other) {
-                id += other.id;
+                if (id.empty()) id = other.id;
                 index = other.index;
-                type += other.type;
-                function.name += other.function.name;
+                if (type.empty()) type = other.type.empty() ? String("function") : other.type;
+
+                if (!other.function.name.empty()) {
+                    function.name = other.function.name;
+                }
                 function.arguments += other.function.arguments;
                 return *this;
             }

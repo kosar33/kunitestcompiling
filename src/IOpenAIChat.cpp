@@ -141,8 +141,15 @@ AJson AJsonConv<IOpenAIChat::Message>::toJson(const IOpenAIChat::Message& msg) {
     if (!msg.name.empty()) {
         obj["name"] = static_cast<const AString&>(msg.name);
     }
-    if (!msg.reasoning.empty()) obj["reasoning"] = static_cast<const AString&>(msg.reasoning);
-    if (!msg.reasoning_content.empty()) obj["reasoning_content"] = static_cast<const AString&>(msg.reasoning_content);
+    AString reasoningText = !msg.reasoning_content.empty() ? msg.reasoning_content : msg.reasoning;
+    if (reasoningText.empty() && !msg.tool_calls.empty()) {
+        reasoningText = "Thought process completed.";
+    }
+    if (!reasoningText.empty()) {
+        obj["reasoning"] = static_cast<const AString&>(reasoningText);
+        obj["reasoning_content"] = static_cast<const AString&>(reasoningText);
+    }
+
     if (!msg.tool_call_id.empty()) obj["tool_call_id"] = static_cast<const AString&>(msg.tool_call_id);
     if (!msg.tool_calls.empty()) obj["tool_calls"] = aui::to_json(msg.tool_calls);
 

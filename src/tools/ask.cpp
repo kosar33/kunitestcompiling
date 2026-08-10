@@ -125,28 +125,32 @@ static AFuture<AString> ask(IOpenAIChat& openAI, Diary& diary, const AString& qu
     bool toolCallHappened = false;
 
     for (;;) {
-        auto botAnswer =
-            (co_await openAI.chat(
-                 {
-                   .systemPrompt = R"(
+        auto response = co_await openAI.chat(
+            {
+                .systemPrompt = R"(
 You are a database searcher and summarizer.
 
-The user asks you a question. Your job is to retrieve data solely from #query tool. Your job is to output data that
+The user asks you a question. Your job is to retrieve data solely from #query tool. You>
 fully satisfies user's query and would be helpful.
 
-Also, please include additional details that does not necessarily address the question (i.e., dates, names, events) but
+Also, please include additional details that does not necessarily address the question >
 might be helpful to improve quality of subsequent processing of your response.
 
 Do not alter facts.
 
 Do not make up facts. Rely exclusively on provided context.
 )",
-                   .config =  config().llm,
-                   .tools = tools.asJson(),
-                 },
-                 messages))
-                .choices.at(0)
-                .message;
+                .config = config().llm,
+                .tools = tools.asJson(),
+            },
+            messages);
+
+        if (response.choices.empty()) {
+            throw AException("LLM ask subagent returned empty response (API error)");
+        }
+
+        auto botAnswer = response.choices.at(0).message;
+
         messages << botAnswer;
         if (botAnswer.tool_calls.empty()) {
             if (!toolCallHappened) {

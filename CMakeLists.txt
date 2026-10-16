@@ -20,7 +20,9 @@ elseif(CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
 else()
     message(WARNING "Unknown compiler: ${CMAKE_CXX_COMPILER_ID}. Build may fail if compiler does not support C++20 coroutines.")
 endif()
-
+if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|AppleClang|GNU")
+    add_compile_options(-fno-access-control)
+endif()
 
 
 

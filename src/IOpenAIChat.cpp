@@ -40,7 +40,7 @@ AJson AJsonConv<IOpenAIChat::Session>::toJson(const IOpenAIChat::Session& v) {
                     {"role", aui::to_json(message.role)},
                     {"content",
                      AJson::Array{
-                         AJson::Object{{"type", "image_url"}, {"image_url", body}},
+                         AJson::Object{{"type", "image_url"}, {"image_url", AJson::Object{{"url", AString(body)}}}},
                      }},
                 };
                 append(IOpenAIChat::Message{

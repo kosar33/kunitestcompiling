@@ -371,7 +371,6 @@ AFuture<IOpenAIChat::AudioTranscription> OpenAIChatImpl::transcribeAudio(AByteBu
     }
 
     auto response = co_await ACurl::Builder(cfg.endpoint.baseUrl + "audio/transcriptions")
-                        .withMethod(ACurl::Method::HTTP_POST)
                         .withHeaders(std::move(headers))
                         .withMultipart(form)
                         .withTimeout(config().requestTimeoutSecs)

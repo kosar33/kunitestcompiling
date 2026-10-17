@@ -33,6 +33,7 @@ AFuture<AString> llmui::image(std::span<const IOpenAIChat::Message> temporaryCon
             size_t count = std::min(maxContext, temporaryContext.size());
             auto recent = temporaryContext.subspan(temporaryContext.size() - count);
             for (const auto& i : recent) {
+                // Skip old images to prevent query bloat
                 if (i.content.contains(IOpenAIChat::EMBEDDING_TAG)) continue;
                 context += "<context_item>\n";
                 context += i.content;

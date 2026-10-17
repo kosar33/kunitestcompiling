@@ -28,10 +28,16 @@ AFuture<AString> llmui::image(std::span<const IOpenAIChat::Message> temporaryCon
         context += "<character name=\"{}\">\n"_format(config().characterName);
         context += prompts().characterAppearance;
         context += "\n</character name=\"{}\">\n"_format(config().characterName);
-        for (const auto& i : temporaryContext) {
-            context += "<context_item>\n";
-            context += i.content;
-            context += "\n</context_item>\n";
+        const size_t maxContext = config().visionMaxContextMessages;
+        if (maxContext > 0 && !temporaryContext.empty()) {
+            size_t count = std::min(maxContext, temporaryContext.size());
+            auto recent = temporaryContext.subspan(temporaryContext.size() - count);
+            for (const auto& i : recent) {
+                if (i.content.contains(IOpenAIChat::EMBEDDING_TAG)) continue;
+                context += "<context_item>\n";
+                context += i.content;
+                context += "\n</context_item>\n";
+            }
         }
 
         // Route video formats to the video pipeline

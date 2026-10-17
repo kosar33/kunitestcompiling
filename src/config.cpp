@@ -429,6 +429,11 @@ static const std::unordered_map<AStringView, AStringView> CONFIG_COMMENTS = {
       "misc.can_leave_chats",
       "Whether Kuni chat leave a telegram group chat/channel.",
     },
+    {
+      "capabilities.vision.max_context_messages",
+      "Maximum number of recent chat messages to include as context for the vision model.\n"
+      "0 disables conversation context. Set to 1-2 for cloud models (Groq) to avoid token limits (ITPM).",
+    },
 };
 
 static constexpr auto CONFIG_TOML = "config.toml";

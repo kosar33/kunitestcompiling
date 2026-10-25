@@ -78,6 +78,8 @@ constexpr auto DIARY_DIR = "diary";
 
 AEventLoop gEventLoop;
 
+AMap<std::pair<int64_t /* chatId */, int64_t /* messageId */>, AString> gLastKnownMessageText;
+
 extern "C" AStringView project_version_info();
 
 class App : public AppBase {
@@ -363,10 +365,11 @@ private:
             }
         }
         auto notification = "<notification chat_id=\"{}\">\n"_format(chat->id_);
+        const auto incomingMsgText = llmui::extractMessageTypeAndText(const_cast<td::td_api::message&>(*u->message_));
+        gLastKnownMessageText[std::make_pair(u->message_->chat_id_, u->message_->id_)] = incomingMsgText;
 
         if (userId == u->message_->chat_id_) {
-            if (auto cmdResponse = co_await tryHandleCmd(
-                    userId, llmui::extractMessageTypeAndText(const_cast<td::td_api::message&>(*u->message_)))) {
+            if (auto cmdResponse = co_await tryHandleCmd(userId, incomingMsgText)) {
                 co_await util::telegramPostMessage(
                     *telegram(), userId, std::move(*cmdResponse), std::nullopt, std::nullopt, u->message_->id_);
                 co_return;
@@ -482,21 +485,38 @@ private:
         auto notification = "<notification chat_id=\"{}\">\n"_format(chat->id_);
         const auto msgText = llmui::extractMessageTypeAndText(const_cast<td::td_api::message&>(*msg));
 
+        AString oldText;
+        if (auto it = gLastKnownMessageText.contains(key)) {
+            oldText = it->second;
+            if (!oldText.empty() && oldText == msgText) {
+                // Text has not changed (e.g. metadata/reactions only) - skip redundant notification
+                co_return;
+            }
+        }
+        gLastKnownMessageText[key] = msgText;
+
+        auto formatDiff = [&](AStringView header) -> AString {
+            if (!oldText.empty()) {
+                return "{}\n- WAS: \"{}\"\n- NOW: \"{}\""_format(header, oldText, msgText);
+            }
+            return "{}\n\"{}\""_format(header, msgText);
+        };
+
         if (userId == chatId) {
             if (auto cmdResponse = co_await tryHandleCmd(userId, msgText)) {
                 co_await util::telegramPostMessage(
                     *telegram(), userId, std::move(*cmdResponse), std::nullopt, std::nullopt, msg->id_);
                 co_return;
             }
-            notification += "User {} (chat_id = {}) EDITED their previous message to:\n\"{}\""_format(
-                chat->title_, chat->id_, msgText);
+            notification += formatDiff("User {} (chat_id = {}) EDITED their previous message:"_format(
+                chat->title_, chat->id_));
         } else if (userId != 0) {
             auto user = co_await mTelegram->getUser(userId);
-            notification += "{} {} (user_id = {}) EDITED their message in group chat \"{}\" (chat_id = {}) to:\n\"{}\""_format(
-                user->first_name_, user->last_name_, userId, chat->title_, chat->id_, msgText);
+            notification += formatDiff("{} {} (user_id = {}) EDITED their message in group chat \"{}\" (chat_id = {}):"_format(
+                user->first_name_, user->last_name_, userId, chat->title_, chat->id_));
         } else {
-            notification += "Channel \"{}\" (chat_id={}) edited post to:\n\"{}\""_format(
-                chat->title_, chat->id_, msgText);
+            notification += formatDiff("Channel \"{}\" (chat_id={}) edited post:"_format(
+                chat->title_, chat->id_));
         }
         notification +=
             "\n[Context note: The user edited their message. Acknowledge the change naturally if relevant.]\n"
@@ -657,6 +677,8 @@ public:
         }
         {
             for (auto& msg : messages | ranges::view::reverse) {
+                gLastKnownMessageText[std::make_pair(chatId, msg->id_)] =
+                    llmui::extractMessageTypeAndText(const_cast<td::td_api::message&>(*msg));
                 auto msgFormatted =
                     co_await llmui::formatChatHistoryMessage(*telegram(), *msg, *chat, *openAI(), temporaryContext());
                 for (const auto& i : chatHistoryMessageProcessors) {

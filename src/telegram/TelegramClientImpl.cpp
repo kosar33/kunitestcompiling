@@ -359,6 +359,21 @@ void TelegramClientImpl::commonHandler(td::tl::unique_ptr<td::td_api::Object> ob
                   dst->populated.supplyValue();
               }
           },
+          [this](td::td_api::updateMessageContent& u) {
+              auto& cacheForThisChat = mMessageCache[u.chat_id_];
+              if (auto dst = cacheForThisChat.contains(u.message_id_)) {
+                  dst->second->tg.content_ = std::move(u.new_content_);
+              }
+          },
+          [this](td::td_api::updateMessageEdited& u) {
+              auto& cacheForThisChat = mMessageCache[u.chat_id_];
+              if (auto dst = cacheForThisChat.contains(u.message_id_)) {
+                  dst->second->tg.edit_date_ = u.edit_date_;
+                  if (u.reply_markup_) {
+                      dst->second->tg.reply_markup_ = std::move(u.reply_markup_);
+                  }
+              }
+          },
           [&](auto& i) {},
         });
 }

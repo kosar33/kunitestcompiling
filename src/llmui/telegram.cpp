@@ -370,6 +370,9 @@ AFuture<AString> llmui::formatChatHistoryMessage(
     if (senderId != telegram.myId() && chat.last_read_inbox_message_id_ <= msg.id_) {
         formattedXmlTag += " unread";
     }
+    if (msg.edit_date_ > 0) {
+        formattedXmlTag += " edited=\"true\"";
+    }
     if (msg.forward_info_) {
         // explanation: from perspective of telegram, sender is the one who shared a message to you.
         //

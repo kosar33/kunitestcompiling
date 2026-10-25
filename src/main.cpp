@@ -418,6 +418,125 @@ private:
         co_return;
     }
 
+    AFuture<> handleTelegramEvent(AArc<const td::td_api::updateMessageContent> u) {
+        co_await processMessageEdit(u->chat_id_, u->message_id_);
+    }
+
+    AFuture<> handleTelegramEvent(AArc<const td::td_api::updateMessageEdited> u) {
+        co_await processMessageEdit(u->chat_id_, u->message_id_);
+    }
+
+    AFuture<> processMessageEdit(int64_t chatId, int64_t messageId) {
+        if (!config().acceptEditedMessages) {
+            co_return;
+        }
+
+        // Debounce: prevent duplicate notifications for rapid edits within 2 seconds
+        static AMap<std::pair<int64_t, int64_t>, std::chrono::steady_clock::time_point> sLastEditedEvent;
+        const auto nowSteady = std::chrono::steady_clock::now();
+        const auto key = std::make_pair(chatId, messageId);
+        if (auto it = sLastEditedEvent.contains(key)) {
+            if (nowSteady - it->second < std::chrono::seconds(2)) {
+                co_return;
+            }
+        }
+        sLastEditedEvent[key] = nowSteady;
+
+        auto msg = co_await mTelegram->getMessage(chatId, messageId);
+        if (!msg) {
+            co_return;
+        }
+
+        int64_t userId = 0;
+        if (auto user = ITelegramClient::tryCastTo<const td::td_api::messageSenderUser>(*msg->sender_id_)) {
+            userId = user->user_id_;
+        }
+        if (userId == mTelegram->myId()) {
+            co_return;
+        }
+
+        // Check age limit (30 minutes by default)
+        const auto nowSec = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
+        if (msg->date_ > 0 && (nowSec - msg->date_) > config().editedMessageMaxAgeSecs.count()) {
+            co_return;
+        }
+
+        // Check lockdown mode
+        if (!co_await util::isAccessibleFromLockdown(*telegram(), chatId)) {
+            co_return;
+        }
+        if (!co_await util::isAccessibleFromLockdown(*telegram(), chatId, config().chatNotificationFilter)) {
+            co_return;
+        }
+
+        auto chat = co_await mTelegram->getChat(chatId);
+
+        if (chat->notification_settings_) {
+            if (chat->notification_settings_->mute_for_ > 0) {
+                if (std::uniform_real_distribution<>(0.0, 1.0)(gRandomEngine) < 0.8) {
+                    co_return;
+                }
+            }
+        }
+
+        auto notification = "<notification chat_id=\"{}\">\n"_format(chat->id_);
+        const auto msgText = llmui::extractMessageTypeAndText(const_cast<td::td_api::message&>(*msg));
+
+        if (userId == chatId) {
+            if (auto cmdResponse = co_await tryHandleCmd(userId, msgText)) {
+                co_await util::telegramPostMessage(
+                    *telegram(), userId, std::move(*cmdResponse), std::nullopt, std::nullopt, msg->id_);
+                co_return;
+            }
+            notification += "User {} (chat_id = {}) EDITED their previous message to:\n\"{}\""_format(
+                chat->title_, chat->id_, msgText);
+        } else if (userId != 0) {
+            auto user = co_await mTelegram->getUser(userId);
+            notification += "{} {} (user_id = {}) EDITED their message in group chat \"{}\" (chat_id = {}) to:\n\"{}\""_format(
+                user->first_name_, user->last_name_, userId, chat->title_, chat->id_, msgText);
+        } else {
+            notification += "Channel \"{}\" (chat_id={}) edited post to:\n\"{}\""_format(
+                chat->title_, chat->id_, msgText);
+        }
+        notification +=
+            "\n[Context note: The user edited their message. Acknowledge the change naturally if relevant.]\n"
+            "</notification>\n"
+            "You don't have any chat open. Use #open tool to open the chat";
+
+        const bool isImportant = [&] {
+            if (userId == config().papikChatId) {
+                return true;
+            }
+            if (config().wakeUpOnPinnedChat) {
+                for (const auto& position : chat->positions_) {
+                    if (position->is_pinned_) {
+                        return true;
+                    }
+                }
+            }
+            return false;
+        }();
+
+        passNotificationToAI(
+            std::move(notification),
+            {
+              {
+                .name = "open",
+                .description = "Open \"{}\" chat. Use this if you'd like to reply or see messages."_format(chat->title_),
+                .handler = [this, chatId = chat->id_](OpenAITools::Ctx ctx) -> AFuture<AString> {
+                    return llmuiOpenTelegramChat(ctx.tools, chatId);
+                },
+              },
+            },
+            isImportant);
+
+        if (isImportant) {
+            wakeUpIfSleeping();
+        }
+
+        co_return;
+    }
+
     void setOnline(bool online = true) {
         mTelegram->sendQuery(ITelegramClient::toPtr(
             td::td_api::setOption("online", ITelegramClient::toPtr(td::td_api::optionValueBoolean(online)))));

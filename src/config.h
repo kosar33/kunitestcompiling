@@ -70,6 +70,8 @@
   X(AString, recordVoiceOpenAIModel, "tts-1", "capabilities.record_voice.openai.model") \
   X(AString, recordVoiceOpenAIVoice, "alloy", "capabilities.record_voice.openai.voice") \
   X(bool, proxyEnabled, false, "capabilities.proxy.enabled") \
+  X(bool, acceptEditedMessages, true, "misc.accept_edited_messages") \
+  X(std::chrono::seconds, editedMessageMaxAgeSecs, std::chrono::seconds(1800), "misc.edited_message_max_age_secs") \
 
 // clang-format on
 

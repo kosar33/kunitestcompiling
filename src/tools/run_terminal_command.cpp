@@ -19,6 +19,8 @@
 #include <AUI/IO/APath.h>
 #include <AUI/Util/kAUI.h>
 
+#include "config.h"
+
 namespace tools {
 
 OpenAITools::Tool runTerminalCommand() {
@@ -88,9 +90,12 @@ OpenAITools::Tool runTerminalCommand() {
             }
 
             auto task = AUI_THREADPOOL_X [payload = std::move(payload), binary]() -> AString {
-                APath logPath = APath("logs/terminal_history.log").absolute();
-                logPath.parent().makeDirs();
-                int log_fd = open(logPath.toStdString().c_str(), O_WRONLY | O_APPEND | O_CREAT, 0644);
+                int log_fd = -1;
+                if (config().fileLogsEnabled) {
+                    APath logPath = APath("logs/terminal_history.log").absolute();
+                    logPath.parent().makeDirs();
+                    log_fd = open(logPath.toStdString().c_str(), O_WRONLY | O_APPEND | O_CREAT, 0644);
+                }
 
                 int sock = socket(AF_UNIX, SOCK_SEQPACKET, 0);
                 if (sock == -1) {

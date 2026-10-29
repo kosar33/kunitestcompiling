@@ -389,6 +389,12 @@ static const std::unordered_map<AStringView, AStringView> CONFIG_COMMENTS = {
     { "misc.remind_use_ask",
       "Remind to use #ask tool (main RAG fetch) more proactively.\n"
       "Some LLMs forget about using this. If true, the system inserts reminders if LLM doesn't use #ask." },
+    { "misc.file_logs_enabled",
+      "Write debug logs into the logs/ folder (LLM query/response JSON dumps, terminal_history.log).\n"
+      "Set to false to disable log files entirely. Hot-reloaded." },
+    { "misc.proxy_logs_enabled",
+      "Write intercepted proxy requests/responses into the logs_proxy/ folder (one file per request).\n"
+      "Set to false to disable proxy tracing entirely. Hot-reloaded." },
     {
       "misc.typing_simulation_min_wpm",
       "Minimum simulated typing speed (words per minute) used to delay sending consecutive messages.\n"

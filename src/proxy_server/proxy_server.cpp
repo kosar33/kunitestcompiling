@@ -39,9 +39,20 @@ using namespace std::chrono_literals;
 namespace {
 
 struct RequestTrace {
-    AFileOutputStream stream { APath("logs_proxy") / ("{}"_format(std::chrono::system_clock::now()) + ".txt") };
+    std::unique_ptr<AFileOutputStream> stream;   // null when misc.proxy_logs_enabled = false
+
+    RequestTrace() {
+        if (config().proxyLogsEnabled) {
+            APath("logs_proxy").makeDirs();
+            stream = std::make_unique<AFileOutputStream>(
+                APath("logs_proxy") / ("{}"_format(std::chrono::system_clock::now()) + ".txt"));
+        }
+    }
 
     void write(AStringView tag, AStringView line) {
+        if (!stream) {
+            return;
+        }
         auto lines =
             line | ranges::view::split('\n') | ranges::view::transform([](auto&& rng) {
                 return AStringView(&*ranges::begin(rng), ranges::distance(rng));
@@ -52,7 +63,7 @@ struct RequestTrace {
             if (line.empty()) {
                 continue;
             }
-            stream << "[{}][{:<16}] {}\n"_format(now, tag, line);
+            (*stream) << "[{}][{:<16}] {}\n"_format(now, tag, line);
         }
     }
 };
@@ -125,8 +136,6 @@ struct ProxyServerImpl : AObject, proxy_server::IProxyServer {
         static const auto DATA_DIR = APath("data") / "proxy";
         return [this](const httplib::Request& req, httplib::Response& res) {
             try {
-                APath("logs_proxy").makeDirs();
-
                 struct ResponseService : std::enable_shared_from_this<ResponseService> {
                     ProxyServerImpl& parent;
                     httplib::ClientImpl::StreamHandle handle;

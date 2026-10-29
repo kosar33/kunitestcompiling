@@ -138,9 +138,11 @@ _<IOpenAIChat::StreamingResponse> OpenAIChatImpl::chatStreaming(Params params, I
     }();
     AString queryToSave = query; // Copy query to avoid move after use
     static const auto logsDir = APath("logs");
-    logsDir.makeDirs();
     const auto now = std::chrono::system_clock::now();
-    AFileOutputStream(logsDir / "{}.0query.json"_format(now)) << queryToSave.toStdString();
+    if (config().fileLogsEnabled) {
+        logsDir.makeDirs();
+        AFileOutputStream(logsDir / "{}.0query.json"_format(now)) << queryToSave.toStdString();
+    }
 
     ALOG_TRACE(LOG_TAG) << "QueryStreaming: " << queryToSave;
     auto result = _new<IOpenAIChat::StreamingResponse>();
@@ -284,7 +286,9 @@ _<IOpenAIChat::StreamingResponse> OpenAIChatImpl::chatStreaming(Params params, I
                 }
             }
         }
-        AFileOutputStream(logsDir / "{}.1response.json"_format(now)) << AJson::toString(aui::to_json(*result->response));
+        if (config().fileLogsEnabled) {
+            AFileOutputStream(logsDir / "{}.1response.json"_format(now)) << AJson::toString(aui::to_json(*result->response));
+        }
     }(std::move(query), result, std::move(params), std::move(printer), now, messages.sessionId);
     return result;
 }

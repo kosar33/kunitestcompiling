@@ -467,6 +467,9 @@ They tend to change UI, but the workflow keeps the same:
 
 - All intercepted requests and responses are logged to `logs_proxy/` (one file per request, timestamped).
 - The last raw upstream query is saved to `data/proxy/last_query.json` for inspection.
+- Both log folders can be disabled in `config.toml` (hot-reloaded, no rebuild needed):
+  - `misc.file_logs_enabled = false` — disables `logs/` (LLM query/response dumps, `terminal_history.log`).
+  - `misc.proxy_logs_enabled = false` — disables `logs_proxy/` (intercepted proxy requests/responses).
 
 ## Notes
 1. The project uses **coroutines** extensively (C++20 feature)

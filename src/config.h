@@ -72,6 +72,8 @@
   X(bool, proxyEnabled, false, "capabilities.proxy.enabled") \
   X(bool, acceptEditedMessages, true, "misc.accept_edited_messages") \
   X(std::chrono::seconds, editedMessageMaxAgeSecs, std::chrono::seconds(1800), "misc.edited_message_max_age_secs") \
+  X(bool, fileLogsEnabled, true, "misc.file_logs_enabled") \
+  X(bool, proxyLogsEnabled, true, "misc.proxy_logs_enabled") \
 
 // clang-format on
 

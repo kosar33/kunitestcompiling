@@ -440,6 +440,12 @@ static const std::unordered_map<AStringView, AStringView> CONFIG_COMMENTS = {
       "Maximum number of recent chat messages to include as context for the vision model.\n"
       "0 disables conversation context. Set to 1-2 for cloud models (Groq) to avoid token limits (ITPM).",
     },
+    {
+      "capabilities.vision.max_output_tokens",
+      "Maximum number of output tokens the vision model may generate per image/sticker description.\n"
+      "Keep this comfortably under the provider's output-tokens-per-minute (OTPM) limit\n"
+      "(e.g. Groq caps at 1000) to avoid HTTP 429 rate_limit_exceeded errors.",
+    },
 };
 
 static constexpr auto CONFIG_TOML = "config.toml";

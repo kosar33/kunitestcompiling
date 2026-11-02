@@ -53,6 +53,7 @@
   X(AString, webSearchOllamaKey, "", "capabilities.web_search.ollama_bearer_key") \
   X(bool, capabilityVision, false, "capabilities.vision.enabled") \
   X(size_t, visionMaxContextMessages, 2, "capabilities.vision.max_context_messages") \
+  X(int, visionMaxOutputTokens, 500, "capabilities.vision.max_output_tokens") \
   X(EndpointAndModel, llmImageToText, (EndpointAndModel{.endpoint={"http://localhost:11434/v1/"},.model="qwen3.5:9b"}), "capabilities.vision.llm_image_to_text") \
   X(EndpointAndModel, llmImageToTextCheap, (EndpointAndModel{.endpoint={"http://localhost:11434/v1/"},.model="ministral-3:8b"}), "capabilities.vision.llm_image_to_text_cheap") \
   X(bool, capabilityUseStickers, false, "capabilities.use_stickers.enabled") \

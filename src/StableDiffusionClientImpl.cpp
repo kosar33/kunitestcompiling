@@ -45,16 +45,28 @@ AFuture<IStableDiffusionClient::Txt2ImgResponse> StableDiffusionClientImpl::txt2
         headers << "Authorization: Bearer {}"_format(endpoint.bearerKey);
     }
 
-    auto responseBody = (co_await ACurl::Builder(endpoint.baseUrl + "sdapi/v1/txt2img")
+    auto httpResponse = co_await ACurl::Builder(endpoint.baseUrl + "sdapi/v1/txt2img")
                                            .withMethod(ACurl::Method::HTTP_POST)
                                            .withHeaders(std::move(headers))
                                            .withBody(query.toStdString())
                                            .withTimeout(config().requestTimeoutSecs)
-                                           .runAsync())
-                                          .body;
-    auto response = AJson::fromBuffer(responseBody);
+                                           .runAsync();
+    // ACurl does not throw on HTTP 4xx/5xx. Without this check the error body would flow into
+    // response["images"]: AJson::operator[] silently inserts a null and as<>() converts it into an empty array,
+    // so the real SD error was misreported upstream as "Stable Diffusion returned no images".
+    const auto status = static_cast<int>(httpResponse.code);
+    if (status < 200 || status >= 300) {
+        const AByteBufferView bodyView = httpResponse.body;
+        throw AException(
+            "Stable Diffusion HTTP {}: {}"_format(status, AStringView(bodyView.data(), bodyView.size()).substr(0, 500)));
+    }
+    auto response = AJson::fromBuffer(httpResponse.body);
 
     ALOG_TRACE(LOG_TAG) << "Response: " << AJson::toString(response);
+    if (!response.contains("images")) {
+        throw AException(
+            "Stable Diffusion response has no \"images\" (HTTP {}): {}"_format(status, AJson::toString(response)));
+    }
     StableDiffusionClientImpl::Txt2ImgResponse res;
     res.images = response["images"].asArray() | ranges::views::transform([](const AJson& v) { return AImage::fromBuffer(AByteBuffer::fromBase64String(v.asString())); }) | ranges::to_vector;
     res.info = response["info"];

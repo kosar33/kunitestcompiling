@@ -82,7 +82,8 @@ AFuture<ImageGenerator::GalleryImage> ImageGenerator::generate(AString descripti
                     goto tryGallery;
                 }
                 if (response.images.empty()) {
-                    throw AException("Stable Diffusion returned no images");
+                    throw AException(
+                        "Stable Diffusion returned no images (HTTP 200; info: {})"_format(AJson::toString(response.info)));
                 }
                 auto lastImage = response.images[0];
                 PngImageLoader::save(AFileOutputStream{ "image_generator_tmp.png" }, *lastImage);

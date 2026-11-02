@@ -33,14 +33,20 @@ static AFuture<AVector<td::td_api::object_ptr<td::td_api::sticker>>> getSavedSti
 
 AFuture<AString> llmui::listFavoriteStickers(ITelegramClient& telegram, IOpenAIChat& openAI) {
     AString out;
-    auto favoriteStickers =
-        co_await telegram.sendQueryWithResult(ITelegramClient::toPtr(td::td_api::getFavoriteStickers()));
-    for (auto& sticker : co_await getSavedStickers(telegram)) {
-        llmui::checkForMaliciousPayloads(sticker->emoji_);
+    for (auto& stickerPtr : co_await getSavedStickers(telegram)) {
+        // register the sticker in knownStickers() so that #sticker_save can resolve this sticker_id later;
+        // previously only chat history rendering filled knownStickers(), so #sticker_save always failed with
+        // "no such element" for stickers listed by #sticker_list.
+        auto& known = tools::stickers::knownStickers()[stickerPtr->id_];
+        if (!known) {
+            known = std::move(stickerPtr);
+        }
+        auto& sticker = *known; // non-const: fetchMedia takes object_ptr<file>& and reassigns it while downloading
+        llmui::checkForMaliciousPayloads(sticker.emoji_);
         const auto xmlTag =
-            "sticker sticker_id=\"{}\" emoji=\"{}\""_format(sticker->id_, sticker->emoji_);
+            "sticker sticker_id=\"{}\" emoji=\"{}\""_format(sticker.id_, sticker.emoji_);
         // we rely on cache in llmui::image.
-        out += co_await llmui::image({}, openAI, co_await llmui::fetchMedia(telegram, sticker->sticker_), xmlTag);
+        out += co_await llmui::image({}, openAI, co_await llmui::fetchMedia(telegram, sticker.sticker_), xmlTag);
         out += "\n";
     }
     co_return out;
@@ -72,7 +78,23 @@ OpenAITools::Tool tools::stickers::save(_<ITelegramClient> telegram) {
             if (stickerId == 0) {
                 co_return "Error: sticker_id can't be 0";
             }
-            const auto& sticker = knownStickers().at(stickerId);
+
+            // don't use .at(): an unknown sticker_id used to throw AException("no such element") and produce a huge
+            // stack trace in the log instead of a recoverable tool error for the LLM.
+            auto& known = knownStickers();
+            auto it = known.find(stickerId);
+            if (it == known.end() || !it->second) {
+                co_return "Error: unknown sticker_id \"{}\". sticker_id values come from sticker_id=\"...\" "
+                          "attributes in the chat history (requires capabilities.use_stickers) or from "
+                          "#sticker_list output; re-read them and call #sticker_save again with a valid "
+                          "sticker_id."_format(stickerId);
+            }
+            auto& sticker = *it->second;
+            if (!sticker.sticker_ || !sticker.sticker_->remote_) {
+                co_return "Error: sticker \"{}\" has no remote file id"_format(stickerId);
+            }
+            // extract before co_await: knownStickers() may be mutated by other coroutines meanwhile.
+            const auto remoteFileId = sticker.sticker_->remote_->id_;
 
             // save sticker to tg.
             // this allows the account holder to manage/add/remove/list stickers that Kuni has saved.
@@ -80,7 +102,7 @@ OpenAITools::Tool tools::stickers::save(_<ITelegramClient> telegram) {
             // also, telegram apparently has a native limit of up to 10 favorite stickers. the oldest one is removed.
             // this kinda suits our goal because (1) we don't want to have too many stickers (2) there are so many
             // stickers out there so sticker rotation is a good thing for us.
-            co_await telegram->sendQueryWithResult(ITelegramClient::toPtr(td::td_api::addFavoriteSticker(ITelegramClient::toPtr(td::td_api::inputFileRemote(sticker->sticker_->remote_->id_)))));
+            co_await telegram->sendQueryWithResult(ITelegramClient::toPtr(td::td_api::addFavoriteSticker(ITelegramClient::toPtr(td::td_api::inputFileRemote(remoteFileId)))));
             co_return "Sticker \"{}\" saved successfully. You should acknowledge your participant you liked the sticker and saved it."_format(stickerId);
         },
     };

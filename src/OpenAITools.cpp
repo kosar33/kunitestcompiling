@@ -75,9 +75,10 @@ AFuture<IOpenAIChat::Session> OpenAITools::handleToolCalls(const AVector<IOpenAI
                         if (metricsBreadCumbs) {
                             point.emplace(metricsBreadCumbs, "function", toolCall.function.name);
                         }
+                        auto trimmedArgs = toolCall.function.arguments.trim();
                         auto handlerResult = co_await c->second.handler({
                             .tools = *this,
-                            .args = AJson::fromString(toolCall.function.arguments),
+                            .args = trimmedArgs.empty() ? AJson::Object{} : AJson::fromString(trimmedArgs),
                             .allToolCalls = toolCalls,
                         });
                         if (onAfterToolCall) {
@@ -92,6 +93,7 @@ AFuture<IOpenAIChat::Session> OpenAITools::handleToolCalls(const AVector<IOpenAI
                 }
             }()),
             .tool_call_id = toolCall.id,
+            .name = toolCall.function.name,
         };
     }
     co_return result;

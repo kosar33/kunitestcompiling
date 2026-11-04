@@ -13,6 +13,7 @@
 
 #include "AUI/Curl/ACurl.h"
 #include "AUI/Curl/AFormMultipart.h"
+#include "AUI/Common/AMap.h"
 #include "AUI/IO/AFileOutputStream.h"
 #include "AUI/Image/jpg/JpgImageLoader.h"
 #include "AUI/Json/Conversion.h"
@@ -44,6 +45,17 @@ AString IOpenAIChat::embedImage(AImageView image) {
 AJson OpenAIChatImpl::makeQueryString(Params params, const IOpenAIChat::Session& messages) {
     ALOG_TRACE(LOG_TAG) << "makeQueryString";
     AUI_ASSERT(!messages.sessionId.empty());
+
+    // Map tool_call_id -> function name from assistant messages to resolve tool response names
+    AMap<AString, AString> toolCallIdToName;
+    for (const auto& msg : messages) {
+        for (const auto& tc : msg.tool_calls) {
+            if (!tc.id.empty() && !tc.function.name.empty()) {
+                toolCallIdToName[tc.id] = tc.function.name;
+            }
+        }
+    }
+
     auto messagesJson = aui::to_json(messages);
     for (auto& msg : messagesJson.asArray()) {
         auto& msgObj = msg.asObject();
@@ -58,6 +70,30 @@ AJson OpenAIChatImpl::makeQueryString(Params params, const IOpenAIChat::Session&
         }
         if (msgObj.contains("tool_calls") && msgObj["tool_calls"].asArray().empty()) {
             msgObj.removeIf([](const auto& pair) { return pair.first == "tool_calls"; });
+        }
+
+        // Standardize tool vs non-tool 'name' parameter across all providers
+        // (OpenAI, Gemini, Groq, Ollama, Anthropic):
+        if (msgObj.contains("role") && msgObj["role"].asString() == "tool") {
+            AString name = msgObj.contains("name") ? msgObj["name"].asString() : "";
+            if (name.empty()) {
+                if (msgObj.contains("tool_call_id")) {
+                    auto toolCallId = msgObj["tool_call_id"].asString();
+                    if (auto it = toolCallIdToName.find(toolCallId); it != toolCallIdToName.end()) {
+                        name = it->second;
+                    } else {
+                        name = toolCallId;
+                    }
+                } else {
+                    name = "unknown_tool";
+                }
+                msgObj["name"] = name;
+            }
+        } else {
+            // For non-tool messages, remove empty name string so strict providers don't reject it
+            if (msgObj.contains("name") && msgObj["name"].asString().empty()) {
+                msgObj.removeIf([](const auto& pair) { return pair.first == "name"; });
+            }
         }
     }
     AJson json {

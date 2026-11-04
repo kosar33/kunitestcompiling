@@ -113,6 +113,7 @@ static bool processIgnoreChance(IOpenAIChat::Session& temporaryContext, bool& ca
                     .role = IOpenAIChat::Message::Role::TOOL,
                     .content = "Error: do you really want to continue? Think again; repeat `{}` to continue or call wait() to finish."_format(AStringView(tc.function.name)),
                     .tool_call_id = tc.id,
+                    .name = tc.function.name,
                 };
             }
             ALogger::info(LOG_TAG) << "Begging LLM to be lazy (ignore message)";

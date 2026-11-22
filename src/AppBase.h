@@ -78,6 +78,7 @@ protected:
     // Set by llmuiOpenTelegramChat; read by updateTools to populate ToolCallEvent.
     AOptional<std::chrono::system_clock::time_point> mLastOpenedChatLastMessageTime;
 
+    static size_t compactablePrefixSize(const IOpenAIChat::Session& context);
     virtual AFuture<AString> onCleanContext();
 
 
@@ -140,6 +141,8 @@ protected:
     }
 
 private:
+    AOptional<AFuture<>> mContextSaveFinished;
+    AFuture<> saveContextPrefix(size_t count);
     _<MetricsBreadcumbs> mMetricBreadcumbs = _new<MetricsBreadcumbs>();
     const Init mInit;
     std::deque<Notification> mNotifications;

@@ -166,6 +166,8 @@ AppBase::AppBase(Init init): mInit(std::move(init)), mDiary({
             // co_await self.mDiary.sleepingConsolidation();
 
             co_await self.onBeforeMainLoop();
+            size_t requestsSinceCompaction = 0;
+            int64_t lastTokenCount = 0;
             for (;;) {
                 self.onOffline();
                 if (self.mSystemPromptSuffix.empty()) {
@@ -249,6 +251,20 @@ AppBase::AppBase(Init init): mInit(std::move(init)), mDiary({
                     }
 
                     naxyi_preserve_ctx:
+                    if (requestsSinceCompaction >= 32 ||
+                        (lastTokenCount > 0 && static_cast<size_t>(lastTokenCount) >= config().diaryTokenCountTrigger)) {
+                        const auto count = self.compactablePrefixSize(self.mTemporaryContext);
+                        if (count > 0) {
+                            try {
+                                co_await self.saveContextPrefix(count);
+                                self.mSystemPromptSuffix = co_await self.onCleanContext();
+                            } catch (const AException& e) {
+                                ALogger::err(LOG_TAG) << "Context compaction failed; keeping history: " << e;
+                            }
+                            requestsSinceCompaction = 0;
+                            lastTokenCount = 0;
+                        }
+                    }
                     self.updateTools(notification.actions);
                     if (!self.mAskCalledThisTurn) {
                         // remind LLM to call #ask before responding.
@@ -297,6 +313,8 @@ AppBase::AppBase(Init init): mInit(std::move(init)), mDiary({
                     }();
                     AUI_ASSERT(AThread::current() == self.getThread());
 
+                    ++requestsSinceCompaction;
+                    lastTokenCount = std::max(botAnswer.usage.total_tokens, botAnswer.usage.prompt_tokens);
                     if (botAnswer.choices.empty() || botAnswer.choices.at(0).message.tool_calls.empty()) {
                         // no tool calls.
                         // each LLMs turn should end with "wait" or "pause"
@@ -359,11 +377,9 @@ AppBase::AppBase(Init init): mInit(std::move(init)), mDiary({
                             // standard AException workflow which is used for technical errors (such as you were banned, or
                             // no internet connection) whose are meaningful to LLM and it can adopt to.
 
-                            if (botAnswer.usage.prompt_tokens > config().diaryTokenCountTrigger) {
-                                // we are stuck; ignore the event
-                                ALogger::warn("AppBase") << "LLM can't find proper response to the notification; "
-                                                            "context is overflown. Ignoring event and dumping context";
-                                co_await self.diaryDumpMessages();
+                            if (lastTokenCount > 0 && static_cast<size_t>(lastTokenCount) >= config().diaryTokenCountTrigger &&
+                                self.compactablePrefixSize(self.mTemporaryContext) == 0) {
+                                // Retrying the identical request cannot make progress.
                                 continue;
                             }
                             goto naxyi_preserve_ctx;
@@ -375,10 +391,6 @@ AppBase::AppBase(Init init): mInit(std::move(init)), mDiary({
                     }
 
                     if (pauseFlag) {
-                        finish:
-                        if (botAnswer.usage.total_tokens >= config().diaryTokenCountTrigger) {
-                            co_await self.diaryDumpMessages();
-                        }
                         continue;
                     }
                     if (!notification.actions.handlers().empty()) {
@@ -420,23 +432,60 @@ const AppBase::Notification& AppBase::passNotificationToAI(AString notification,
 }
 
 AFuture<> AppBase::diaryDumpMessages() {
+    while (mContextSaveFinished.hasValue()) {
+        auto finished = *mContextSaveFinished;
+        co_await finished;
+    }
+    co_await saveContextPrefix(mTemporaryContext.size());
+}
+
+size_t AppBase::compactablePrefixSize(const IOpenAIChat::Session& context) {
+    constexpr size_t recentMessages = 6;
+    size_t first = context.size() > recentMessages ? context.size() - recentMessages : 0;
+    // Keep the assistant call and every reply together, including parallel calls.
+    while (first > 0 && context[first].role == IOpenAIChat::Message::Role::TOOL) {
+        --first;
+    }
+    return first;
+}
+
+AFuture<> AppBase::saveContextPrefix(size_t count) {
     MetricsBreadcumbs::Point metric(metricBreadcumbs(), "function", "diaryDumpMessages");
     ALOG_TRACE(LOG_TAG) << "diaryDumpMessages";
     // mDiary.reload(); // will find plagiarism against all entries. // commented out: exclude plagiarism checks for
     // included entries
     AUI_DEFER { mDiary.reload(); };
-    if (mTemporaryContext.empty()) {
+    if (count == 0) {
         co_return;
     }
+    if (mContextSaveFinished.hasValue()) {
+        co_return;
+    }
+    AFuture<> finished;
+    mContextSaveFinished = finished;
+    AUI_DEFER {
+        mContextSaveFinished.reset();
+        finished.supplyValue();
+    };
+    IOpenAIChat::Session retired(mTemporaryContext.begin(), mTemporaryContext.begin() + count);
+    auto archiveDir = mInit.workingDir / "context_archive";
+    archiveDir.makeDirs();
+    auto archivePath = archiveDir / "{}.json"_format(retired.sessionId);
+    AJson::Array archive;
+    for (const auto& message : retired) {
+        archive << aui::to_json(message);
+    }
+    AFileOutputStream(archivePath) << AJson::toString(archive);
+
     AString previousWorkingMemory;
     if ((mInit.workingDir / WORKING_MEMORY_PATH).isRegularFileExists()) {
         AByteBuffer buf;
         buf << AFileInputStream(mInit.workingDir / WORKING_MEMORY_PATH);
         previousWorkingMemory = AStringView(buf.data(), buf.size());
     }
-    auto importantThingsToRemember = util::importantThingsToRemember(*this, *openAI(), mTemporaryContext, previousWorkingMemory);
+    auto importantThingsToRemember = util::importantThingsToRemember(*this, *openAI(), retired, previousWorkingMemory);
 
-    co_await util::diarySaveEntries(mDiary, mTemporaryContext, {
+    co_await util::diarySaveEntries(mDiary, std::move(retired), {
         .systemPrompt = getSystemPrompt(),
         // no tools should be involved.
     });
@@ -445,7 +494,7 @@ AFuture<> AppBase::diaryDumpMessages() {
         auto workingMemoryMd = co_await importantThingsToRemember;
         AFileOutputStream(mInit.workingDir / WORKING_MEMORY_PATH) << workingMemoryMd;
     }
-    mTemporaryContext.clear();
+    mTemporaryContext.erase(mTemporaryContext.begin(), mTemporaryContext.begin() + count);
     mSystemPromptSuffix.clear();
 }
 

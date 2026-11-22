@@ -29,12 +29,12 @@ endif()
 option(BUILD_SHARED_LIBS OFF)
 option(KUNI_USE_FFMPEG OFF "Enable FFmpeg. Enables video transcription")
 
-set(AUI_VERSION v8.0.0-rc.29)
+set(AUI_VERSION v8.0.0-rc.33)
 
 # Use AUI.Boot
 include(aui.boot.cmake)
 
-set(AUI_COROUTINES "Use C++20 coroutines" ON)
+set(AUI_COROUTINES ON CACHE BOOL "Use C++20 coroutines")
 auib_mark_var_forwardable(AUI_COROUTINES)
 
 # import AUI
@@ -67,6 +67,7 @@ auib_import(Td https://github.com/tdlib/td
         VERSION 0ae923c493bceb75433de2682ba8ae29cc7bf88d)
 
 aui_executable(${PROJECT_NAME})
+target_compile_features(${PROJECT_NAME} PUBLIC cxx_std_20)
 
 # Link required libs
 aui_link(${PROJECT_NAME} PUBLIC

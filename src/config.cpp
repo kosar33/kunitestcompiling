@@ -221,8 +221,8 @@ static const std::unordered_map<AStringView, AStringView> CONFIG_COMMENTS = {
     },
     {
       "misc.diary_token_count_trigger",
-      "When the conversation context exceeds this token count, Kuni dumps her memory to the diary\n"
-      "and restarts with a clean context. Keeps context window usage under control.\n"
+      "At this reported token count, or after 32 model requests, Kuni archives older messages\n"
+      "and summarizes them, keeping the most recent six messages and complete tool exchanges.\n"
       "Requires context window >= this value + some headroom.",
     },
     {

@@ -199,9 +199,10 @@ AppBase::AppBase(Init init): mInit(std::move(init)), mDiary({
 
                     ALOG_DEBUG(LOG_TAG) << "Processing notification: " << notification.message;
 
+                    size_t notificationIndex = self.mTemporaryContext.size();
                     self.mTemporaryContext << IOpenAIChat::Message{
                         .role = IOpenAIChat::Message::Role::USER,
-                        .content = std::move(notification.message),
+                        .content = notification.message,
                     };
 
                     // naxyi was here.
@@ -254,9 +255,19 @@ AppBase::AppBase(Init init): mInit(std::move(init)), mDiary({
                     if (requestsSinceCompaction >= 32 ||
                         (lastTokenCount > 0 && static_cast<size_t>(lastTokenCount) >= config().diaryTokenCountTrigger)) {
                         const auto count = self.compactablePrefixSize(self.mTemporaryContext);
-                        if (count > 0) {
+                        if (count > 0 && !self.mContextSaveFinished.hasValue()) {
                             try {
                                 co_await self.saveContextPrefix(count);
+                                if (count > notificationIndex) {
+                                    // Keep the active request verbatim while its tools are still running.
+                                    self.mTemporaryContext.insert(self.mTemporaryContext.begin(), {
+                                        .role = IOpenAIChat::Message::Role::USER,
+                                        .content = notification.message,
+                                    });
+                                    notificationIndex = 0;
+                                } else {
+                                    notificationIndex -= count;
+                                }
                                 self.mSystemPromptSuffix = co_await self.onCleanContext();
                             } catch (const AException& e) {
                                 ALogger::err(LOG_TAG) << "Context compaction failed; keeping history: " << e;

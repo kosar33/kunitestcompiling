@@ -3,6 +3,7 @@
 //
 
 #include "tools/send_telegram_message.h"
+#include "prompts.h"
 #include "../common.h"
 #include "AUI/Thread/AAsyncHolder.h"
 #include "AUI/Thread/AEventLoop.h"
@@ -553,7 +554,7 @@ TEST(SendTelegramMessageTest, RepeatDetectionThrows) {
 
     EXPECT_CALL(*openAI, embedding(testing::_, testing::_))
         .Times(testing::AtLeast(2))
-        .WillRepeatedly(testing::Return(AFuture(embeddingVec)));
+        .WillRepeatedly([embeddingVec](IOpenAIChat::Params, AString) { return AFuture(embeddingVec); });
 
     // sendQuery may be called for typing action before the throw
     EXPECT_CALL(*telegram, sendQuery(testing::_))
@@ -566,14 +567,16 @@ TEST(SendTelegramMessageTest, RepeatDetectionThrows) {
         telegram, openAI, chat, std::move(messages));
 
     OpenAITools tools{};
-    EXPECT_THROW(
+    try {
         util::await_synchronously(tool.handler({
             .tools = tools,
             .args = AJson::Object{{"text", "Hello there!"}},
             .allToolCalls = {},
-        })),
-        AException
-    );
+        }));
+        FAIL() << "Expected repeat detection to reject the message";
+    } catch (const AException& e) {
+        EXPECT_TRUE(e.getMessage().contains(prompts().antiRepeatPrompt)) << e.getMessage();
+    }
 }
 
 // ===========================================================================
@@ -620,7 +623,7 @@ TEST(SendTelegramMessageTest, SynthesizesAndSendsOneVoiceNoteInOneCall) {
         [&](AString speech) -> AFuture<APath> {
             EXPECT_EQ(speech, "Hello!");
             ++generated;
-            co_return APath("note.mp3");
+            co_return TEST_DATA / "audio.ogg";
         });
     EXPECT_TRUE(tool.parameters.properties.contains("speech"));
     EXPECT_CALL(*telegram, sendQuery(testing::_)).WillRepeatedly(

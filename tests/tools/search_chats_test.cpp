@@ -181,3 +181,39 @@ TEST(SearchChatsTest, AtPrefixStripped) {
 
     EXPECT_TRUE(result.contains("No chats found")) << "result = " << result;
 }
+
+TEST(SearchChatsTest, TitleSearchSkipsUsernameLookup) {
+    auto telegram = _new<TelegramMock>();
+    EXPECT_CALL(*telegram, sendQuery(testing::_)).WillOnce([](auto query) -> AFuture<ITelegramClient::Object> {
+        EXPECT_EQ(query->get_id(), td::td_api::searchChatsOnServer::ID);
+        co_return td::td_api::make_object<td::td_api::chats>();
+    });
+    auto tool = tools::searchChats(telegram);
+    OpenAITools tools{};
+    EXPECT_TRUE(util::await_synchronously(tool.handler({tools, AJson::Object{{"query", "Новости канала"}}, {}})).contains("No chats found"));
+}
+
+TEST(SearchChatsTest, RejectedUsernamePreservesTitleMatch) {
+    using namespace td::td_api;
+    auto telegram = _new<TelegramMock>();
+    EXPECT_CALL(*telegram, sendQuery(testing::_))
+        .WillOnce([](auto) -> AFuture<ITelegramClient::Object> {
+            auto matches = make_object<chats>();
+            matches->chat_ids_ = {config().papikChatId};
+            co_return matches;
+        })
+        .WillOnce([](auto query) -> AFuture<ITelegramClient::Object> {
+            EXPECT_EQ(query->get_id(), searchPublicChat::ID);
+            co_return make_object<error>(400, "USERNAME_INVALID");
+        })
+        .WillOnce([](auto) -> AFuture<ITelegramClient::Object> {
+            auto match = make_object<chat>();
+            match->id_ = config().papikChatId;
+            match->title_ = "My channel";
+            match->type_ = make_object<chatTypePrivate>();
+            co_return match;
+        });
+    auto tool = tools::searchChats(telegram);
+    OpenAITools tools{};
+    EXPECT_TRUE(util::await_synchronously(tool.handler({tools, AJson::Object{{"query", "abc"}}, {}})).contains("My channel"));
+}

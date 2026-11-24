@@ -13,6 +13,7 @@
 #include <AUI/Thread/AAsyncHolder.h>
 #include <AUI/Thread/AEventLoop.h>
 #include <AUI/IO/APath.h>
+#include <AUI/IO/AFileInputStream.h>
 #include <AUI/Logging/ALogger.h>
 
 #include <range/v3/algorithm/any_of.hpp>
@@ -78,6 +79,7 @@ public:
     }
 
     // Expose protected members for testing
+    using AppBase::compactablePrefixSize;
     using AppBase::mTemporaryContext;
     using AppBase::mRelevanceThreshold;
     using AppBase::openAI;
@@ -154,6 +156,33 @@ TEST_F(AppBaseUnitTest, PassNotificationToAIBasic) {
 // ============================================================================
 // passNotificationToAI — multiple notifications are queued
 // ============================================================================
+TEST_F(AppBaseUnitTest, ReconsidersDraftWhenSameChatSendsAnotherMessage) {
+    AEventLoop loop;
+    IEventLoop::Handle handle(&loop);
+    auto model = _new<OpenAIMock>();
+    AppTestHarness app(model);
+    auto draft = makeWaitResponse();
+    draft->completed = AFuture<>();
+    bool drafting = false;
+    EXPECT_CALL(*model, chatStreaming(::testing::_, ::testing::_))
+        .WillOnce([&](auto, auto) {
+            drafting = true;
+            return draft;
+        })
+        .WillOnce([](auto, IOpenAIChat::Session history) {
+            EXPECT_TRUE(history.last().content.contains("second message"));
+            EXPECT_TRUE(ranges::any_of(history, [](const auto& msg) { return msg.content.contains("first message"); }));
+            EXPECT_FALSE(ranges::any_of(history, [](const auto& msg) { return msg.role == IOpenAIChat::Message::Role::TOOL; }));
+            return makeWaitResponse();
+        });
+    auto first = app.passNotificationToAI("first message", {}, true, 42);
+    while (!drafting) loop.iteration();
+    auto second = app.passNotificationToAI("second message", {}, true, 42);
+    draft->completed.supplyValue();
+    while (!second.onProcessed.hasResult()) loop.iteration();
+    EXPECT_TRUE(first.onProcessed.hasResult());
+}
+
 TEST_F(AppBaseUnitTest, PassNotificationToAIMultiple) {
     AAsyncHolder async;
     AEventLoop loop;
@@ -496,4 +525,57 @@ TEST_F(AppBaseUnitTest, TemporaryContextAccumulatesMessages) {
     // The last message should be from the assistant (tool call response)
     const auto& lastMsg = app.temporaryContext().last();
     EXPECT_EQ(lastMsg.role, IOpenAIChat::Message::Role::TOOL);
+}
+
+TEST_F(AppBaseUnitTest, CompactionKeepsParallelToolResultsWithTheirCall) {
+    using Role = IOpenAIChat::Message::Role;
+    IOpenAIChat::Session history;
+    for (auto role : {Role::USER, Role::ASSISTANT, Role::TOOL, Role::TOOL,
+                      Role::USER, Role::ASSISTANT, Role::TOOL, Role::USER, Role::USER}) {
+        history << IOpenAIChat::Message{.role = role};
+    }
+    EXPECT_EQ(AppTestHarness::compactablePrefixSize(history), 1u);
+    history.erase(history.begin(), history.begin() + 3);
+    EXPECT_EQ(AppTestHarness::compactablePrefixSize(history), 0u);
+}
+
+TEST_F(AppBaseUnitTest, PeriodicCompactionPreservesHistoryWithoutProviderUsage) {
+    AAsyncHolder async;
+    AEventLoop loop;
+    IEventLoop::Handle handle(&loop);
+    auto openAI = _new<OpenAIMock>();
+    int requests = 0;
+    int summaries = 0;
+    EXPECT_CALL(*openAI, chatStreaming(testing::_, testing::_)).WillRepeatedly(
+        [&](IOpenAIChat::Params params, IOpenAIChat::Session messages) {
+            auto response = makeWaitResponse();
+            response->response.raw.usage = {};
+            if (params.tools.asArray().empty()) {
+                ++summaries;
+                response->response.raw.choices.front().message.content = "Remember the meeting";
+                // A short diary response avoids creating embeddings in this test.
+                if (summaries == 2) {
+                    response->response.raw.choices.front().message.content = "OK";
+                }
+            } else if (++requests == 33) {
+                EXPECT_TRUE(params.systemPrompt.contains("Remember the meeting"));
+                EXPECT_LT(messages.size(), 10u);
+                EXPECT_TRUE(messages.last().content.contains("notice 32"));
+            }
+            return response;
+        });
+    AppTestHarness app(openAI);
+    for (int i = 0; i < 33; ++i) {
+        async << app.passNotificationToAI("notice {}"_format(i)).onProcessed;
+        while (!async.empty()) {
+            loop.iteration();
+        }
+    }
+    EXPECT_EQ(requests, 33);
+    EXPECT_EQ(summaries, 2);
+    const auto archives = APath("test_data_appbase_unit/context_archive").listDir();
+    ASSERT_EQ(archives.size(), 1u);
+    AByteBuffer archived;
+    archived << AFileInputStream(archives.first());
+    EXPECT_TRUE(AString::fromUtf8(archived).contains("notice 0"));
 }

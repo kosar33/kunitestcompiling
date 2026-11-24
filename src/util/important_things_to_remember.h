@@ -37,6 +37,7 @@ AFuture<AString> importantThingsToRemember(AppBase& app, IOpenAIChat& openAI, IO
               "- {}'s current physical state: energetic, tired, exhausted, sleepy, restless, tense, relaxed, "
               "  hungry, thirsty, sore, dizzy, nauseous, feverish, cold, warm, comfortable, uncomfortable, "
               "  in_pain, injured, healthy, sick, weak, stiff, trembling, numb, wet, dry, stimulated\n"
+              "- current chat, latest request, pending actions, and actions already performed (including sent messages)\n"
               "- other important details\n"
               "In your response, you must include previous <things_to_remember></things_to_remember>. DO NOT ALTER "
               "THEIR DESCRIPTION, thought you can expand them. You should not include older, "

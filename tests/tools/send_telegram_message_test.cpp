@@ -3,6 +3,7 @@
 //
 
 #include "tools/send_telegram_message.h"
+#include "prompts.h"
 #include "../common.h"
 #include "AUI/Thread/AAsyncHolder.h"
 #include "AUI/Thread/AEventLoop.h"
@@ -553,7 +554,7 @@ TEST(SendTelegramMessageTest, RepeatDetectionThrows) {
 
     EXPECT_CALL(*openAI, embedding(testing::_, testing::_))
         .Times(testing::AtLeast(2))
-        .WillRepeatedly(testing::Return(AFuture(embeddingVec)));
+        .WillRepeatedly([embeddingVec](IOpenAIChat::Params, AString) { return AFuture(embeddingVec); });
 
     // sendQuery may be called for typing action before the throw
     EXPECT_CALL(*telegram, sendQuery(testing::_))
@@ -566,14 +567,16 @@ TEST(SendTelegramMessageTest, RepeatDetectionThrows) {
         telegram, openAI, chat, std::move(messages));
 
     OpenAITools tools{};
-    EXPECT_THROW(
+    try {
         util::await_synchronously(tool.handler({
             .tools = tools,
             .args = AJson::Object{{"text", "Hello there!"}},
             .allToolCalls = {},
-        })),
-        AException
-    );
+        }));
+        FAIL() << "Expected repeat detection to reject the message";
+    } catch (const AException& e) {
+        EXPECT_TRUE(e.getMessage().contains(prompts().antiRepeatPrompt)) << e.getMessage();
+    }
 }
 
 // ===========================================================================
@@ -607,4 +610,42 @@ TEST(SendTelegramMessageTest, FirstMessageEncouragesFollowUp) {
     }));
 
     EXPECT_TRUE(result.contains("follow-up")) << "result = " << result;
+}
+
+TEST(SendTelegramMessageTest, SynthesizesAndSendsOneVoiceNoteInOneCall) {
+    auto telegram = _new<TelegramMock>();
+    auto openAI = _new<OpenAIMock>();
+    EXPECT_CALL(*openAI, chatStreaming(testing::_, testing::_)).Times(0);
+    EXPECT_CALL(*openAI, embedding(testing::_, testing::_)).Times(0);
+    int generated = 0;
+    int sent = 0;
+    auto tool = tools::sendTelegramMessage(telegram, openAI, makeChat("Voice"), makeMessages(),
+        [&](AString speech) -> AFuture<APath> {
+            EXPECT_EQ(speech, "Hello!");
+            ++generated;
+            co_return TEST_DATA / "audio.ogg";
+        });
+    EXPECT_TRUE(tool.parameters.properties.contains("speech"));
+    EXPECT_CALL(*telegram, sendQuery(testing::_)).WillRepeatedly(
+        [&](td::td_api::object_ptr<td::td_api::Function> query) -> AFuture<ITelegramClient::Object> {
+            if (query->get_id() == td::td_api::sendMessage::ID) {
+                const auto& request = static_cast<const td::td_api::sendMessage&>(*query);
+                EXPECT_EQ(request.input_message_content_->get_id(), td::td_api::inputMessageVoiceNote::ID);
+                ++sent;
+            }
+            co_return co_await dispatchSendQuery(std::move(query));
+        });
+    OpenAITools actions{};
+    auto send = [&](AJson args) {
+        return util::await_synchronously(tool.handler({actions, std::move(args), {}}));
+    };
+    EXPECT_TRUE(send(AJson::Object{{"speech", "Hello!"}, {"text", "conflict"}}).contains("Error"));
+    EXPECT_TRUE(send(AJson::Object{{"speech", "Hello!"}}).contains("sent successfully"));
+    EXPECT_EQ(generated, 1);
+    EXPECT_EQ(sent, 1);
+}
+
+TEST(SendTelegramMessageTest, DisabledVoiceGenerationOmitsSpeechParameter) {
+    auto tool = tools::sendTelegramMessage(_new<TelegramMock>(), _new<OpenAIMock>(), makeChat("Voice"), makeMessages(), {});
+    EXPECT_FALSE(tool.parameters.properties.contains("speech"));
 }

@@ -156,6 +156,33 @@ TEST_F(AppBaseUnitTest, PassNotificationToAIBasic) {
 // ============================================================================
 // passNotificationToAI — multiple notifications are queued
 // ============================================================================
+TEST_F(AppBaseUnitTest, ReconsidersDraftWhenSameChatSendsAnotherMessage) {
+    AEventLoop loop;
+    IEventLoop::Handle handle(&loop);
+    auto model = _new<OpenAIMock>();
+    AppTestHarness app(model);
+    auto draft = makeWaitResponse();
+    draft->completed = AFuture<>();
+    bool drafting = false;
+    EXPECT_CALL(*model, chatStreaming(::testing::_, ::testing::_))
+        .WillOnce([&](auto, auto) {
+            drafting = true;
+            return draft;
+        })
+        .WillOnce([](auto, IOpenAIChat::Session history) {
+            EXPECT_TRUE(history.last().content.contains("second message"));
+            EXPECT_TRUE(ranges::any_of(history, [](const auto& msg) { return msg.content.contains("first message"); }));
+            EXPECT_FALSE(ranges::any_of(history, [](const auto& msg) { return msg.role == IOpenAIChat::Message::Role::TOOL; }));
+            return makeWaitResponse();
+        });
+    auto first = app.passNotificationToAI("first message", {}, true, 42);
+    while (!drafting) loop.iteration();
+    auto second = app.passNotificationToAI("second message", {}, true, 42);
+    draft->completed.supplyValue();
+    while (!second.onProcessed.hasResult()) loop.iteration();
+    EXPECT_TRUE(first.onProcessed.hasResult());
+}
+
 TEST_F(AppBaseUnitTest, PassNotificationToAIMultiple) {
     AAsyncHolder async;
     AEventLoop loop;

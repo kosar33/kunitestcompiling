@@ -192,8 +192,8 @@ AppBase::AppBase(Init init): mInit(std::move(init)), mDiary({
                 self.mNotifications.pop_front();
                 self.mAskCalledThisTurn = false;
                 notification.message += "\nCurrent time: {} UTC"_format(std::chrono::system_clock::now());
-                notification.onStartedProcessing.supplyValue();
-                AUI_DEFER { notification.onProcessed.supplyValue(); };
+                notification.receipt.onStartedProcessing.supplyValue();
+                AUI_DEFER { notification.receipt.onProcessed.supplyValue(); };
                 try {
                     bool canIgnore = true;
                     co_await processShortcutOpen(notification);
@@ -327,6 +327,12 @@ AppBase::AppBase(Init init): mInit(std::move(init)), mDiary({
 
                     ++requestsSinceCompaction;
                     lastTokenCount = std::max(botAnswer.usage.total_tokens, botAnswer.usage.prompt_tokens);
+                    // Reconsider an unsent draft when the next message in this chat is waiting.
+                    if (notification.chatId && ranges::any_of(self.mNotifications, [&](const Notification& queued) {
+                        return queued.chatId == notification.chatId;
+                    })) {
+                        continue;
+                    }
                     if (botAnswer.choices.empty() || botAnswer.choices.at(0).message.tool_calls.empty()) {
                         // no tool calls.
                         // each LLMs turn should end with "wait" or "pause"
@@ -436,11 +442,16 @@ AppBase::AppBase(Init init): mInit(std::move(init)), mDiary({
     });
 }
 
-const AppBase::Notification& AppBase::passNotificationToAI(AString notification, OpenAITools actions, bool first) {
+AppBase::NotificationReceipt AppBase::passNotificationToAI(AString notification, OpenAITools actions, bool first, int64_t chatId) {
     ALOG_TRACE(LOG_TAG) << "passNotificationToAI";
-    const auto& result = *mNotifications.emplace(first ? mNotifications.begin() : mNotifications.end(), std::move(notification), std::move(actions));
-    mNotificationsSignal.supplyValue();
-    return result;
+    auto position = first ? std::find_if(mNotifications.begin(), mNotifications.end(),
+        [](const Notification& queued) { return !queued.priority; }) : mNotifications.end();
+    NotificationReceipt receipt;
+    mNotifications.emplace(position, std::move(notification), std::move(actions), chatId, first, receipt);
+    if (!mNotificationsSignal.hasResult()) {
+        mNotificationsSignal.supplyValue();
+    }
+    return receipt;
 }
 
 AFuture<> AppBase::diaryDumpMessages() {

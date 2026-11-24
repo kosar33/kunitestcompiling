@@ -19,13 +19,18 @@ public:
     virtual ~AppBase();
     AString getSystemPrompt() const;
 
-    struct Notification {
-        AString message;
-        OpenAITools actions;
+    struct NotificationReceipt {
         AFuture<> onStartedProcessing;
         AFuture<> onProcessed;
     };
 
+    struct Notification {
+        AString message;
+        OpenAITools actions;
+        int64_t chatId = 0;
+        bool priority = false;
+        NotificationReceipt receipt;
+    };
 
     /**
      * @brief Passes an event to the AI to process
@@ -37,7 +42,7 @@ public:
      * @details
      * Think of it as your phone's notifications: you receive a notification, read it and (maybe) react to it.
      */
-    const Notification& passNotificationToAI(AString notification, OpenAITools actions = {}, bool first = false);
+    NotificationReceipt passNotificationToAI(AString notification, OpenAITools actions = {}, bool first = false, int64_t chatId = 0);
 
     AFuture<> diaryDumpMessages();
 

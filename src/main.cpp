@@ -412,7 +412,7 @@ private:
               },
 
             },
-            isImportant);
+            isImportant, chat->id_);
 
         if (isImportant) {
             wakeUpIfSleeping();
@@ -548,7 +548,7 @@ private:
                 },
               },
             },
-            isImportant);
+            isImportant, chat->id_);
 
         if (isImportant) {
             wakeUpIfSleeping();

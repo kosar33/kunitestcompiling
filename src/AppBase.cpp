@@ -82,8 +82,9 @@ static AFuture<> processRandomlyGoSleep(bool& wakeUp) {
 
 [[nodiscard]]
 static AFuture<> processShortcutOpen(AppBase::Notification& notification) {
-    if (notification.actions.handlers().size() == 1) {
-        const auto& action = notification.actions.handlers().begin()->second;
+    const auto handlers = notification.actions.handlers();
+    if (handlers.size() == 1) {
+        const auto& action = handlers.begin()->second;
         if (action.name == "open" && action.parameters.properties.size() == 0) {
             // shortcut/optimization: if the notification gives the only option to open it, there's no
             // need to ask LLM whether it wants to open the notification because it does it
